@@ -991,7 +991,7 @@
         </div>
         <div class="mod">
           <div class="mn">BondingCurve.CurveBuy<small>handler</small></div>
-          <p class="md">先更新储备：<code>trackedNetQuote += netQuoteIn</code>，<code>trackedTokens −= tokensOut</code>，由此得成交后边际价。调 <code>pairPriceAt(pairToken, minute)</code>。建 <code>Trade(CURVE_BUY)</code>：<code>quoteIn = grossQuoteIn</code>，<code>snipeTax = pendingSnipeTax</code>，剩余 <code>fee − snipeTax</code> 按 <code>curveFeeBps : creatorTaxBps</code> 拆成 <code>baseFee</code> / <code>creatorTax</code>（余数归基础费，复现 <code>_splitBuyFees</code>），<code>trader = recipient</code>。Token 累加 <code>cumVolumeCurve</code> / <code>tradeCount</code>，set <code>lastPriceQuote</code> / <code>lastTradeAt</code>；upsert 分钟桶与小时桶；<code>ProtocolDay</code> 累加；<code>Position</code> 加数量与成本。</p>
+          <p class="md">先更新储备：<code>trackedNetQuote += netQuoteIn</code>，<code>trackedTokens −= tokensOut</code>，由此得成交后边际价。调 <code>pairPriceAt(pairToken, minute)</code>。建 <code>Trade(CURVE_BUY)</code>：<code>quoteIn = grossQuoteIn</code>，<code>snipeTax = pendingSnipeTax</code>，剩余 <code>fee − snipeTax</code> 按 <code>curveFeeBps : creatorTaxBps</code> 拆成 <code>baseFee</code> / <code>creatorTax</code>（余数归基础费，复现 <code>_splitBuyFees</code>），<code>trader = recipient</code>。Token 累加 <code>cumVolumeCurve</code> / <code>tradeCount</code>，set <code>lastPriceQuote</code> / <code>lastTradeAt</code>；upsert 分钟桶、小时桶、日桶；<code>ProtocolDay</code> 累加；<code>Position</code> 加数量与成本。</p>
         </div>
         <div class="mod">
           <div class="mn">BondingCurve.CurveSell<small>handler</small></div>
@@ -1011,7 +1011,7 @@
         </div>
         <div class="mod">
           <div class="mn">PoolManager.Swap → GraduatedPoolHook.HookFeeCollected<small>handler · 同 tx 两步</small></div>
-          <p class="md">Swap：<code>Token.getWhere.poolId.eq(id)</code>，查不到就 return。建 <code>Trade(POOL_SWAP, trader=null)</code>，本币是 currency0 还是 currency1 按地址字典序定，<code>priceQuote</code> 由 <code>sqrtPriceX96</code> 换算；累 <code>cumVolumePool</code>，upsert 桶的池子列，USD 同上。
+          <p class="md">Swap：<code>Token.getWhere.poolId.eq(id)</code>，查不到就 return。建 <code>Trade(POOL_SWAP, trader=null)</code>，本币是 currency0 还是 currency1 按地址字典序定，<code>priceQuote</code> 由 <code>sqrtPriceX96</code> 换算；累 <code>cumVolumePool</code>，upsert 三种桶的池子列，USD 同上。
             HookFeeCollected 紧随其后（在 afterSwap 里发）：<code>Trade.getWhere.txHash</code> 找到这笔，回填 <code>fee</code> / <code>creatorTax</code>；注意 <code>currency</code> 可能是本币也可能是配对资产。</p>
         </div>
         <div class="mod">
