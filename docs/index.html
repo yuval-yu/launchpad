@@ -600,7 +600,6 @@
         <thead><tr><th>不做</th><th>因为</th><th>交给谁</th></tr></thead>
         <tbody>
           <tr><td><b>现价类 USD</b></td><td class="dim">见上表</td><td class="dim">Java 线二 / 线三</td></tr>
-          <tr><td><b><code>BUY</code> / <code>SELL</code></b></td><td class="dim">「相对发行 token 的方向」「零额 Swap 算什么」都改过。存事件名 <code>kind</code> 与进出量，方向读时判</td><td class="dim">Java 读接口</td></tr>
           <tr><td><b><code>GRADUATED</code> 等状态名</b></td><td class="dim">存时刻不存状态名</td><td class="dim">Java 线二</td></tr>
           <tr><td><b><code>holderCount</code> / <code>deployerHoldingPct</code></b></td><td class="dim">剔哪些合约是业务判断。Envio 只给「正余额地址数」和每个地址的余额</td><td class="dim">Java 线二</td></tr>
           <tr><td><b>滚动 24h 值</b></td><td class="dim">成交滑出窗口不触发任何事件，存了就是挂着旧值永不归零</td><td class="dim">Java 线三</td></tr>
@@ -819,7 +818,8 @@
 <span class="k">type</span> <span class="t">Trade</span> <span class="k">@entity</span> {                            <span class="c"># 一笔成交一行；除 trader 与池内手续费回填外不修改。读者：成交页签、K 线 M5、Activity、历史持仓（卖出行）</span>
   id: ID!                                     <span class="c"># 区块号补零 12 位 + "-" + logIndex 补零 6 位；按 id 排序即时间序，游标分页用它</span>
   token: Token! <span class="k">@index</span>                        <span class="c"># 所属发射币</span>
-  kind: TradeKind!                            <span class="c"># CURVE_BUY / CURVE_SELL / POOL_SWAP</span>
+  kind: TradeKind!                            <span class="c"># CURVE_BUY / CURVE_SELL / POOL_SWAP，事件来源</span>
+  side: Side!                                 <span class="c"># BUY / SELL。曲线由事件定；池内看本币是流向用户（BUY）还是流出（SELL）。Position 与 pnl 按它算，读接口直接用</span>
   tokenIn: BigInt!                            <span class="c"># 用户付出的本币数量，卖出时非零</span>
   tokenOut: BigInt!                           <span class="c"># 用户收到的本币数量，买入时非零</span>
   quoteIn: BigInt!                            <span class="c"># 买入：CurveBuy.grossQuoteIn，用户实付，含全部费与税，不含退款</span>
@@ -1158,7 +1158,7 @@
           <tr><td>市场列表 / 搜索 / 分区</td><td class="dim"><b>MySQL</b> <code>launchpad_token</code> 一条 SQL</td><td class="dim">已在表里算好，join 绑定与用户表。索引不动。<b>这是唯一读拷贝表的接口</b></td></tr>
           <tr><td>币详情</td><td class="dim"><b>Envio</b> <code>Token</code> 一行 + 该币最近 24h 的 <code>CandleHour</code> / 首尾 <code>CandleMinute</code>；<b>MySQL</b> 只取配对资产现价、叙事、发行者用户</td><td class="dim"><code>priceUsd = lastPriceQuote × 配对资产现价</code>，<code>marketCapUsd = priceUsd × totalSupply</code>，<code>priceInPair = lastPriceQuote</code>，<code>volumeUsd24h</code> 现场从桶求和，曲线进度 = <code>netQuoteRaised ÷ graduationThreshold</code>，流动性同线二公式。与列表卡片同一套公式，列表算好存着、详情现算，数字一致</td></tr>
           <tr><td>K 线五档</td><td class="dim"><b>Envio</b>：M5 查 <code>Trade</code> 逐笔；H1 / H6 / D1 查 <code>CandleMinute</code>；ALL 按跨度查分钟桶或小时桶再合并到 2h / 12h / 1w / 1M</td><td class="dim">「不超过 60 笔逐笔画」先查 61 条；补空档；<code>marketCapUsd = closeUsd × totalSupply</code>。<b>USD 已在实体里，不再合并价格</b></td></tr>
-          <tr><td>成交记录页签</td><td class="dim"><b>Envio</b> <code>Trade(where: {token, id: {_lt: cursor}}, order_by: {id: desc}, limit: 10)</code></td><td class="dim">方向按 <code>kind</code> 与进出量判；<code>exchange</code> 给「曲线」或「Uniswap v4」；<code>nextCursor</code> = 最后一行 id，前端契约不变</td></tr>
+          <tr><td>成交记录页签</td><td class="dim"><b>Envio</b> <code>Trade(where: {token, id: {_lt: cursor}}, order_by: {id: desc}, limit: 10)</code></td><td class="dim">方向直接读 <code>side</code>；<code>exchange</code> 给「曲线」或「Uniswap v4」；<code>nextCursor</code> = 最后一行 id，前端契约不变</td></tr>
           <tr><td>持有人榜 + 人数</td><td class="dim"><b>Envio</b> <code>Balance</code> 按币、余额倒序，前 100 + 若干</td><td class="dim">剔除 PoolManager / 锁仓合约，CURVE 阶段保留曲线行并标 <code>bondingCurve</code>，算占比、标 Creator。<b><code>publicName</code> 与 <code>tags</code> 恒为 null</b></td></tr>
           <tr><td>Activity</td><td class="dim"><b>Envio</b> <code>Trade(where: {trader: {_eq: addr}})</code>，登录用户名下多个地址用 <code>_in</code></td><td class="dim">补币名与图（读 <code>launchpad_token</code>）。<code>launchpad_activity</code> 表、上报接口 <code>POST /activities</code> 与轮询 <code>GET /activities/{id}</code> 删除</td></tr>
           <tr><td>持仓页（新）</td><td class="dim"><b>Envio</b> <code>Position</code> 按 trader；每行再取 <code>Balance</code> 与 <code>Token.lastPriceQuote</code></td><td class="dim">数量 = <code>Balance</code>；均价 = <code>avgCostQuote</code>；未实现盈亏 % = <code>lastPriceQuote ÷ avgCostQuote − 1</code>；未实现金额 = <code>(lastPriceQuote − avgCostQuote) × 数量</code>，乘配对资产现价得 USD；持有市值低于粉尘阈值的行不列（读时口径）</td></tr>
