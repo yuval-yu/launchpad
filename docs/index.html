@@ -239,7 +239,7 @@
       <h2>数据怎么流、在哪生成</h2>
       <p class="section-note">一张图看全：链上事件从左往右变成 Envio 的实体，配对资产的美元价从上面那条独立的线进来，Java 只拷一张币表，其余读时直查。实线是写入或推送，虚线是读取，带色标的实体里有成交时点固化的 USD。</p>
       <figure class="fig">
-        <svg viewBox="0 0 1180 800" role="img" aria-label="数据流转图：Robinhood 链上事件经 HyperSync 进入自建 Envio 的 handler，写成 QuoteAssetConfig、Token、Trade、Balance、Position、CandleMinute、CandleHour、ProtocolDay 八个实体，其中 Trade、Candle、ProtocolDay 带成交时点 USD，价格由 handler 通过 Effect 按区块时间读 MySQL 的 launchpad_coin_price；该表由 Java 线一每分钟从币安和 Robinhood 股票 API 取价追加。Java 的 Token 同步器每 2 秒按 updatedAtBlock 拷 Token 到 launchpad_token，线三读小时桶算 24h，线二读 Balance 与 coin_price 最新行算叙事绑定与现价类 USD；读接口只有列表和搜索查 MySQL，详情、K 线、成交、持有者、余额、Activity、协议日直查 Hasura，配对资产余额走 QuickNode RPC 的 balanceOf，最后以不变的 REST 形状给前端。">
+        <svg viewBox="0 0 1180 800" role="img" aria-label="数据流转图：Robinhood 链上事件经 HyperSync 进入自建 Envio 的 handler，写成 QuoteAssetConfig、Token、Trade、Balance、Position、CandleMinute、CandleHour、CandleDay、ProtocolDay 九个实体，其中 Trade、Candle、ProtocolDay 带成交时点 USD，价格由 handler 通过 Effect 按区块时间读 MySQL 的 launchpad_coin_price；该表由 Java 线一每分钟从币安和 Robinhood 股票 API 取价追加。Java 的 Token 同步器每 2 秒按 updatedAtBlock 拷 Token 到 launchpad_token，线三读小时桶算 24h，线二读 Balance 与 coin_price 最新行算叙事绑定与现价类 USD；读接口只有列表和搜索查 MySQL，详情、K 线、成交、持有者、余额、Activity、协议日直查 Hasura，配对资产余额走 QuickNode RPC 的 balanceOf，最后以不变的 REST 形状给前端。">
           <defs>
             <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -317,7 +317,7 @@
 
             <rect x="270" y="402" width="310" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule-strong)"/>
             <rect x="270" y="402" width="4" height="34" style="fill:var(--accent)"/>
-            <text x="282" y="423" fill="currentColor">CandleMinute / Hour</text>
+            <text x="282" y="423" fill="currentColor">Candle 分 / 时 / 日</text>
             <text x="418" y="423" style="fill:var(--ink-soft);font-family:'IBM Plex Sans',sans-serif;font-size:11px">open…closeUsd · volumeUsd</text>
 
             <rect x="270" y="444" width="310" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule-strong)"/>
@@ -330,7 +330,7 @@
             <text x="340" y="507" style="fill:var(--ink-soft);font-family:'IBM Plex Sans',sans-serif;font-size:11px">持有者余额 · Position 持仓成本与盈亏</text>
 
             <rect x="270" y="528" width="310" height="34" rx="3" style="fill:var(--surface);stroke:var(--rule-strong)"/>
-            <text x="280" y="549" style="fill:var(--ink-soft);font-family:'IBM Plex Sans',sans-serif;font-size:11px">八个实体 · 没有读者的事件只留 raw_events</text>
+            <text x="280" y="549" style="fill:var(--ink-soft);font-family:'IBM Plex Sans',sans-serif;font-size:11px">九个实体 · 没有读者的事件只留 raw_events</text>
           </g>
 
           <!-- reads Envio → Java -->
@@ -672,10 +672,10 @@
   <article class="panel" id="p-indexer" hidden>
     <header>
       <div class="eyebrow">4 · Envio 负责什么</div>
-      <h1>八个实体、两个 Effect、一组 handler</h1>
+      <h1>九个实体、两个 Effect、一组 handler</h1>
       <p class="standfirst">
         <strong>职责一句话：把我们合约的事件解码成事实实体，维护只靠加减和取最后值就能得到的派生实体，并按区块时间给成交和桶写上 USD。</strong>
-        它不判业务状态、不认识短剧和用户、不算跟现价走的数。实体只有八个，<strong>每一个都能说出至少一个读它的接口或定时线</strong>，没有读者的事件不建实体。
+        它不判业务状态、不认识短剧和用户、不算跟现价走的数。实体只有九个，<strong>每一个都能说出至少一个读它的接口或定时线</strong>，没有读者的事件不建实体。
       </p>
     </header>
 
@@ -903,8 +903,12 @@
   updatedAtBlock: BigInt!                     <span class="c"># 最后变动的区块</span>
 }
 
-<span class="k">type</span> <span class="t">CandleHour</span> <span class="k">@entity</span> {                       <span class="c"># 小时桶，字段与 CandleMinute 完全相同。读者：K 线 ALL、线三的完整小时</span>
+<span class="k">type</span> <span class="t">CandleHour</span> <span class="k">@entity</span> {                       <span class="c"># 小时桶，字段与 CandleMinute 完全相同。读者：K 线 ALL 档 30 天以内、线三的完整小时</span>
   <span class="c"># … 同上，periodStart 取整小时 …</span>
+}
+
+<span class="k">type</span> <span class="t">CandleDay</span> <span class="k">@entity</span> {                        <span class="c"># UTC 日桶，字段与 CandleMinute 完全相同。读者：K 线 ALL 档超过 30 天，合并成 1 周 / 1 月</span>
+  <span class="c"># … 同上，periodStart 取整 UTC 日 …</span>
 }
 
 <span class="k">type</span> <span class="t">ProtocolDay</span> <span class="k">@entity</span> {                      <span class="c"># 协议日桶，UTC 日 × 配对资产一行。读者：协议数据页。发射数与去重发射者由 Java 从 launchpad_token 按日数</span>
@@ -945,7 +949,7 @@
           <tr><td>Transfer / HookFeeCollected handler 回填</td><td class="dim"><code>Trade</code> where <code>txHash = ?</code></td><td class="mono-c dim">trade(txHash)</td></tr>
           <tr><td>持有者榜</td><td class="dim"><code>Balance</code> where <code>asset = ?</code> order by balance desc limit 120</td><td class="mono-c dim">balance(asset, balance desc)</td></tr>
           <tr><td>持仓页</td><td class="dim"><code>Balance</code> where <code>account = ?</code></td><td class="mono-c dim">balance(account)</td></tr>
-          <tr><td>K 线 H1 / H6 / D1 / ALL</td><td class="dim"><code>Candle*</code> where <code>token = ?</code> and <code>periodStart</code> in range</td><td class="mono-c dim">candle_*(token_id, periodStart)</td></tr>
+          <tr><td>K 线 H1 / H6 / D1 / ALL</td><td class="dim"><code>CandleMinute</code> / <code>CandleHour</code> / <code>CandleDay</code> where <code>token = ?</code> and <code>periodStart</code> in range</td><td class="mono-c dim">candle_*(token_id, periodStart)</td></tr>
           <tr><td>线三</td><td class="dim"><code>CandleHour</code> where <code>periodStart ≥ now − 24h</code>，跨币</td><td class="mono-c dim">candle_hour(periodStart)</td></tr>
           <tr><td>协议数据页</td><td class="dim"><code>ProtocolDay</code> where <code>dayIndex ≥ ?</code></td><td class="mono-c dim">protocol_day(dayIndex)</td></tr>
         </tbody>
@@ -961,6 +965,7 @@
           <tr><td><code>Balance</code></td><td class="dim">币数 × 持有地址数，十万级</td><td class="dim">只记发射币。配对资产不索引，否则要追全链所有 WETH / USDG 持有者，比发射台自己的事件多几十倍</td></tr>
           <tr><td><code>CandleMinute</code></td><td class="dim">≤ 成交笔数，实际远小于</td><td class="dim">只有有成交的分钟才有行</td></tr>
           <tr><td><code>CandleHour</code></td><td class="dim">分钟桶的几十分之一</td><td class="dim">同上</td></tr>
+          <tr><td><code>CandleDay</code></td><td class="dim">币数 × 有成交的天数</td><td class="dim">同上</td></tr>
           <tr><td><code>Position</code></td><td class="dim">交易过的（地址 × 币）数，不超过 Balance</td><td class="dim">每对一行，只更新</td></tr>
           <tr><td><code>QuoteAssetConfig</code></td><td class="dim">配对资产配置的版本数，几十行</td><td class="dim">运营改配置才加</td></tr>
           <tr><td><code>ProtocolDay</code></td><td class="dim">天数 × 配对资产数，几千行封顶</td><td class="dim">每天几行</td></tr>
@@ -1157,7 +1162,7 @@
         <tbody>
           <tr><td>市场列表 / 搜索 / 分区</td><td class="dim"><b>MySQL</b> <code>launchpad_token</code> 一条 SQL</td><td class="dim">已在表里算好，join 绑定与用户表。索引不动。<b>这是唯一读拷贝表的接口</b></td></tr>
           <tr><td>币详情</td><td class="dim"><b>Envio</b> <code>Token</code> 一行 + 该币最近 24h 的 <code>CandleHour</code> / 首尾 <code>CandleMinute</code>；<b>MySQL</b> 只取配对资产现价、叙事、发行者用户</td><td class="dim"><code>priceUsd = lastPriceQuote × 配对资产现价</code>，<code>marketCapUsd = priceUsd × totalSupply</code>，<code>priceInPair = lastPriceQuote</code>，<code>volumeUsd24h</code> 现场从桶求和，曲线进度 = <code>netQuoteRaised ÷ graduationThreshold</code>，流动性同线二公式。与列表卡片同一套公式，列表算好存着、详情现算，数字一致</td></tr>
-          <tr><td>K 线五档</td><td class="dim"><b>Envio</b>：M5 查 <code>Trade</code> 逐笔；H1 / H6 / D1 查 <code>CandleMinute</code>；ALL 按跨度查分钟桶或小时桶再合并到 2h / 12h / 1w / 1M</td><td class="dim">「不超过 60 笔逐笔画」先查 61 条；补空档；<code>marketCapUsd = closeUsd × totalSupply</code>。<b>USD 已在实体里，不再合并价格</b></td></tr>
+          <tr><td>K 线五档</td><td class="dim"><b>Envio</b>：M5 查 <code>Trade</code> 逐笔；H1 / H6 / D1 查 <code>CandleMinute</code>；ALL 按跨度查分钟桶、小时桶或日桶再合并到 2h / 12h / 1w / 1M</td><td class="dim">「不超过 60 笔逐笔画」先查 61 条；补空档；<code>marketCapUsd = closeUsd × totalSupply</code>。<b>USD 已在实体里，不再合并价格</b></td></tr>
           <tr><td>成交记录页签</td><td class="dim"><b>Envio</b> <code>Trade(where: {token, id: {_lt: cursor}}, order_by: {id: desc}, limit: 10)</code></td><td class="dim">方向直接读 <code>side</code>；<code>exchange</code> 给「曲线」或「Uniswap v4」；<code>nextCursor</code> = 最后一行 id，前端契约不变</td></tr>
           <tr><td>持有人榜 + 人数</td><td class="dim"><b>Envio</b> <code>Balance</code> 按币、余额倒序，前 100 + 若干</td><td class="dim">剔除 PoolManager / 锁仓合约，CURVE 阶段保留曲线行并标 <code>bondingCurve</code>，算占比、标 Creator。<b><code>publicName</code> 与 <code>tags</code> 恒为 null</b></td></tr>
           <tr><td>Activity</td><td class="dim"><b>Envio</b> <code>Trade(where: {trader: {_eq: addr}})</code>，登录用户名下多个地址用 <code>_in</code></td><td class="dim">补币名与图（读 <code>launchpad_token</code>）。<code>launchpad_activity</code> 表、上报接口 <code>POST /activities</code> 与轮询 <code>GET /activities/{id}</code> 删除</td></tr>
@@ -1263,7 +1268,7 @@
   <article class="panel" id="p-tables" hidden>
     <header>
       <div class="eyebrow">7 · 数据表</div>
-      <h1>Envio 八个实体，MySQL 三张表</h1>
+      <h1>Envio 九个实体，MySQL 三张表</h1>
       <p class="standfirst">
         Envio 的 Postgres 由它按 <code>schema.graphql</code> 生成，实体见第 4 页；Java 读路径走 Hasura，批量聚合可用只读账号。
         MySQL 侧全部在 <code>mini_drama</code> 库、<code>launchpad_</code> 前缀，金额最小单位 <code>DECIMAL(65,0)</code>，地址小写 <code>char(42)</code>。
@@ -1375,7 +1380,7 @@
         <tbody>
           <tr><td><code>Token</code></td><td class="dim">Token 同步器</td><td class="dim">GraphQL，按 <code>updatedAtBlock</code></td></tr>
           <tr><td><code>Trade</code></td><td class="dim">K 线 M5、成交页签、Activity</td><td class="dim">GraphQL，按币 / 按 trader，id 游标</td></tr>
-          <tr><td><code>CandleMinute</code> / <code>CandleHour</code></td><td class="dim">K 线、线三</td><td class="dim">GraphQL；线三也可只读账号 <code>GROUP BY</code></td></tr>
+          <tr><td><code>CandleMinute</code> / <code>CandleHour</code> / <code>CandleDay</code></td><td class="dim">K 线、线三</td><td class="dim">GraphQL；线三也可只读账号 <code>GROUP BY</code></td></tr>
           <tr><td><code>Balance</code></td><td class="dim">持有者榜、资产页余额、线二</td><td class="dim">GraphQL，按币余额倒序 / 按地址</td></tr>
           <tr><td><code>Position</code></td><td class="dim">持仓页、按币汇总的历史</td><td class="dim">GraphQL，按 trader</td></tr>
           <tr><td><code>QuoteAssetConfig</code></td><td class="dim">线二（配对资产名单与精度）</td><td class="dim">GraphQL，几十行</td></tr>
@@ -1448,7 +1453,7 @@
           <tr><td class="mono-c">H1</td><td class="dim">1 小时 / 1 分钟</td><td><code>CandleMinute</code></td><td class="dim">一次 60 行</td></tr>
           <tr><td class="mono-c">H6</td><td class="dim">6 小时 / 5 分钟</td><td><code>CandleMinute</code></td><td class="dim">360 行合并成 72 点</td></tr>
           <tr><td class="mono-c">D1</td><td class="dim">1 天 / 15 分钟</td><td><code>CandleMinute</code></td><td class="dim">上限 1440 行，实际只有成交的分钟才有行</td></tr>
-          <tr><td class="mono-c">ALL</td><td class="dim">自发射起 / 1 分 ～ 1 月</td><td>跨度 ≤ 1 天用分钟桶，否则 <code>CandleHour</code> 再合并</td><td class="dim">2h / 12h / 1w / 1M 的桶都从小时桶合并得到</td></tr>
+          <tr><td class="mono-c">ALL</td><td class="dim">自发射起 / 1 分 ～ 1 月</td><td>≤ 1 天分钟桶；≤ 30 天 <code>CandleHour</code> 合并成 2h / 12h；更长 <code>CandleDay</code> 合并成 1w / 1M</td><td class="dim">一年也只有 365 行日桶，不用拉八千多行小时桶</td></tr>
         </tbody>
       </table></div>
       <p>「不超过 60 笔逐笔画」先查 61 条；没成交的那一格画什么（延续上一根收盘价，还是留空断开）在读时补；<code>marketCapUsd = closeUsd × totalSupply</code>。USD 点已在实体里。</p>
