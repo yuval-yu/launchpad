@@ -27,7 +27,7 @@ title: 11 · 与扫链现状的差距
 | TokenLaunched | 有 | 要 | args 齐全（17 个参数含 `socials.storyFun`），缺 `derived` |
 | CurveBuy | 有 | 要 | args 齐全，缺 `derived` |
 | CurveSell | 有 | 要 | 同上 |
-| CurveCompleted | 有 | 我们订的是 **LaunchSwept**（同 tx，带 `token`） | 两条二选一即可：用 CurveCompleted 就要在 `derived` 里补 `token`（args 里只有 curve）；用 LaunchSwept 则 args 自带 token。**建议改订 LaunchSwept**，与状态机口径一致 |
+| CurveCompleted | 有 | 我们订的是 **LaunchSwept**（同 tx，带 `token`） | 两条二选一，**现状的 CurveCompleted 可以直接用**：Java 用 `payload.address`（curve）反查币。只是 LaunchSwept 的 `quoteAmount` / `tokenAmount` 与状态机命名一致，改订更顺；不改也行 |
 | CurveBuyRefunded | 有 | 不要 | 退款不含在 `grossQuoteIn` 里，不影响任何数。多发无害，Java 会 SKIPPED，但白占审计表 |
 | AutoGraduationFailed | 有 | 不要 | 排查用，多发无害 |
 | **QuoteAssetConfigured** | 无 | 要 | 配对资产精度 / 阈值的链上权威 |
@@ -86,7 +86,7 @@ title: 11 · 与扫链现状的差距
 3. **补 Transfer 与 Swap 两种事件。** 没有前者没有余额和持有者；没有后者已毕业的币是死的。
 4. **补 CurveBuy / CurveSell 的其余 derived**（费用拆分、储备、价格、流动性）与 TokenLaunched 的 derived。
 5. **补毕业三事件、QuoteAssetConfigured、Heartbeat。**
-6. `CurveCompleted` 换成 `LaunchSwept`；`CurveBuyRefunded` / `AutoGraduationFailed` 停发；加 `txFrom`。
+6. `CurveBuyRefunded` / `AutoGraduationFailed` 停发；加 `txFrom`；`CurveCompleted` 换不换 `LaunchSwept` 随他们。
 
 第 1、2 条做完 Java 就能开始联调曲线阶段；第 3 条做完才有毕业后与持有者；其余按顺序补。
 
