@@ -43,7 +43,7 @@ Java 收到就 set `launchpad_token.price_quote`，同时写进这笔 `launchpad
 ::: tip 三点说明
 - **时效**：一笔 Swap 上链 → Envio 处理该区块并达到确认深度 → 消息到 Java → 落库，秒级；对列表和详情足够，K 线本来就按分钟分桶。
 - **不会漏**：所有池内成交都经 PoolManager 的 `Swap`，Envio 按 poolId 过滤后全部投出；没有别的路径能改池价。
-- **计价资产**：池的配对资产就是发币时的 `quoteAsset`（Receiver 用它建池），`PoolRegistered.quoteAsset` 存进 `launchpad_pool.quote_asset_address` 只作核对；USD 折算用它在价格历史表里的价。
+- **计价资产**：池的配对资产就是发币时的 `quoteAsset`（Receiver 用它建池），`PoolRegistered.quoteAsset` 存进 `pool_quote_asset` 只作核对；USD 折算用它在价格历史表里的价。
 :::
 
 ## 历史价：成交 handler 与定时线共用的一张表

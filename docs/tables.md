@@ -1,8 +1,8 @@
 ---
-title: 7 · 从零建表：十二张
+title: 7 · 从零建表：十一张
 ---
 
-# 从零建表：十二张
+# 从零建表：十一张
 
 线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
@@ -87,29 +87,6 @@ launchpad_trade                                # 一笔成交一行；只插入�
   block_time             BIGINT
   created_at             BIGINT
                                                # uk；(chain_id, token_address, block_time, id)；(chain_id, trader_address, block_time)；(chain_id, block_time)
-
-launchpad_pool                                 # 毕业池的基本信息，一个币一行；V4PoolGraduated / PoolRegistered 建行，Swap / ModifyLiquidity 更新
-  chain_id               BIGINT
-  pool_id                CHAR(66)              # uk (chain_id, pool_id)
-  token_address          CHAR(42)              # uk (chain_id, token_address)
-  quote_asset_address    CHAR(42)              # PoolRegistered.quoteAsset；核对 = 发币时的 quoteAsset
-  position_id            DECIMAL(65,0)         # 永久锁定的 LP NFT id
-  hook_address           CHAR(42)              # GraduatedPoolHook，payload.address
-  tick_spacing           INT
-  fee_pips               INT                   # Swap.fee 原值，存档
-  sqrt_price_x96         DECIMAL(65,0)         # 最近一次 Swap / 建池的原值，存档
-  tick                   INT                   # 存档
-  liquidity              DECIMAL(65,0)         # 当前 L：建池初值，Swap / ModifyLiquidity 后 set
-  quote_reserve          DECIMAL(65,0)         # derived.poolQuoteReserve：池里配对资产数量
-  token_reserve          DECIMAL(65,0)         # derived.poolTokenReserve：池里本币数量
-  price_quote            DECIMAL(36,18)        # 池价，一枚本币值多少配对资产
-  registered_at          BIGINT                # PoolRegistered 区块时间
-  created_at             BIGINT                # V4PoolGraduated 区块时间
-  last_swap_at           BIGINT
-  swap_count             INT
-  cum_volume_quote       DECIMAL(65,0)         # 池内累计成交量，配对资产侧
-  updated_block_number   BIGINT                # 只接受更新的区块（乱序保护）
-  updated_at             BIGINT
 
 launchpad_balance                              # 一个（币, 地址）一行；Transfer 消息里的 fromBalance / toBalance 直接 set，不累加
   chain_id               BIGINT
@@ -202,9 +179,11 @@ launchpad_token                                # 一个发射币一行，uk (cha
   curve_closed_at        BIGINT                # LaunchSwept
   pool_created_at        BIGINT                # V4PoolGraduated
   rescued_at             BIGINT                # LaunchGraduationRescued
-  pool_id                CHAR(66)              # 关联 launchpad_pool；池的明细都在那张表
+  pool_id                CHAR(66)              # Uniswap v4 poolId，前端拼链接
+  pool_quote_asset       CHAR(42)              # PoolRegistered.quoteAsset，核对用
+  pool_position_id       DECIMAL(65,0)         # 永久锁定的 LP NFT id，前端链接
   swept_quote / swept_token DECIMAL(65,0)      # LaunchSwept 交给毕业流程的量
-  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve；曲线净募集，毕业进度分子；对外 quoteRaised
+  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve：曲线阶段 = 曲线净募集（进度分子，对外 quoteRaised）；毕业后 = 池里配对资产侧数量。两阶段都是 liquidity_usd 的底数
   token_reserve          DECIMAL(65,0)
   price_quote            DECIMAL(36,18)        # 最近一笔成交后价，配对资产计
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
@@ -219,7 +198,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   og_key                 VARCHAR(160)
   price_usd              DECIMAL(36,18)        # price_quote × 配对资产现价
   market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
-  liquidity_usd          DECIMAL(20,8)         # 曲线：quote_reserve 折美元 × 2；毕业后：pool.quote_reserve × 配对资产价 + pool.token_reserve × price_usd
+  liquidity_usd          DECIMAL(20,8)         # quote_reserve 折美元 × 2，曲线与毕业后同一公式
   creator_holding_pct    DECIMAL(9,4)          # balance(creator) ÷ total_supply；对外 deployerHoldingPct
 
   # ── 口径列：线三写（每分钟） ──

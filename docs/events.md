@@ -52,7 +52,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | 〃 | 〃 | PoolFeesSwept · PoolFeesRescued · PoolBuybackSkipped · PoolConversionSkipped | 空 |
 | 〃 | 〃 | ReceiverConfigured · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅 |
 | **PoolManager** | 固定，v4 核心 | Swap | 发，按 poolId 过滤，其它池丢弃 |
-| 〃 | 〃 | ModifyLiquidity | 发，按 poolId 过滤 |
+| 〃 | 〃 | ModifyLiquidity | 不订阅（池侧储备随下一笔 Swap 更新） |
 | **LiquidityLocker** | 固定 | TokenDustLocked · PositionLocked | 留档 |
 | **FeeEscrow** | 固定 | Credited · CreditedToken · Claimed · ClaimedToken | 留档 |
 | **BuybackVault** | 固定 | Locked · Released · VestingTermsSnapshotted · CreatorRecipientUpdated | 留档 |
@@ -82,11 +82,10 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | token, trader, baseFee / creatorTax / snipeTax（按合约规则拆好）, quoteReserve, tokenReserve, priceQuote | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
 | **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上（无 snipeTax） | 同上，position 结一笔已实现盈亏 |
 | **LaunchFactory.LaunchSwept** | token, quoteAmount, tokenAmount | — | 币行 `curve_closed_at`，status = GRADUATED。与曲线的 `CurveCompleted` 同 tx，用这条因为带 token |
-| **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | `launchpad_pool` upsert；币行 `pool_id` |
-| **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价）, poolQuoteReserve, poolTokenReserve | `launchpad_pool` 建行；币行 `pool_created_at` / `price_quote` |
+| **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` / `pool_quote_asset` |
+| **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价）, quoteReserve | 币行 `pool_created_at` / `pool_id` / `pool_position_id` / `price_quote` |
 | **LaunchFactory.LaunchGraduationRescued** | token, recipient, quoteAmount, tokenAmount | — | 币行 `rescued_at`，status = RESCUED。**产品要定这种币怎么展示** |
-| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | token, poolId, side, trader, tokenAmount, quoteAmount, priceQuote, hookFee / creatorTax / feeCurrency（同 tx HookFeeCollected）, poolQuoteReserve, poolTokenReserve | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
-| **PoolManager.ModifyLiquidity**（只发我们的池） | id, sender, tickLower, tickUpper, liquidityDelta, salt | token, liquidity, poolQuoteReserve, poolTokenReserve | `launchpad_pool` set 流动性与储备 |
+| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | token, poolId, side, trader, tokenAmount, quoteAmount, priceQuote, hookFee / creatorTax / feeCurrency（同 tx HookFeeCollected）, quoteReserve | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
 | **LaunchToken.Transfer** | from, to, value | fromBalance, toBalance, totalSupply, positiveBalanceCount（变动后绝对值） | `launchpad_balance` set；币行 `total_supply` / `holder_count` set |
 
 同 tx 配对：`SnipeTaxCharged → CurveBuy`、`Swap → Transfer → HookFeeCollected`，都在 Envio 里合并，Java 收到的是一条完整的成交消息。
