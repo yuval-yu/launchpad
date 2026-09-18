@@ -6,7 +6,7 @@ title: 7 · 从零建表：十一张
 
 线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
-约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑；消息里 chainId 与配置不符的在解析层就进死信，进不了任何表。
+约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
 
 四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等；余额是消息给的绝对值，也归这类）、**派生**（只由成交事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
 
@@ -35,7 +35,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   kafka_offset           BIGINT
   received_at            BIGINT
   processed_at           BIGINT
-                                               # uk (event_id, block_time)；(chain_id, block_number, log_index)；(chain_id, token_address, block_number, log_index)；(status, processed_at)
+                                               # uk (event_id, block_time)；(block_number, log_index)；(token_address, block_number, log_index)；(status, processed_at)
                                                # 主键 (id, block_time)；按 block_time 月分区。唯一键与主键里的 block_time 只为满足 MySQL 分区规则（分区表的每个唯一索引必须含分区列），
                                                # 查询永远走 event_id 最左列，block_time 不参与任何查找；去重不受影响，同一 event_id 的 block_time 恒相同。不能用 received_at 分区，见「库与分区」
 ```
@@ -45,7 +45,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
 ```text
 launchpad_quote_asset                          # QuoteAssetConfigured 投影；配对资产精度 / 阈值 / 初始储备的链上权威
   chain_id               BIGINT
-  config_hash            CHAR(66)              # uk (chain_id, config_hash)
+  config_hash            CHAR(66)              # uk (config_hash)
   asset_address          CHAR(42)              # 零地址 = 原生 ETH
   version                CHAR(66)
   decimals               TINYINT
@@ -55,12 +55,12 @@ launchpad_quote_asset                          # QuoteAssetConfigured 投影；�
   enabled                TINYINT(1)
   configured_at          BIGINT                # 区块时间
   created_at / updated_at BIGINT
-                                               # (chain_id, asset_address)
+                                               # (asset_address)
 
 launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
-  log_index              INT                   # uk (chain_id, tx_hash, log_index, block_time)，主键 (id, block_time)；按 block_time 月分区，末尾的 block_time 只为满足分区规则
+  log_index              INT                   # uk (tx_hash, log_index, block_time)，主键 (id, block_time)；按 block_time 月分区，末尾的 block_time 只为满足分区规则
   token_address          CHAR(42)
   venue                  VARCHAR(8)            # CURVE / POOL
   side                   VARCHAR(4)            # BUY / SELL
@@ -88,18 +88,18 @@ launchpad_trade                                # 一笔成交一行；只插入�
   block_number           BIGINT
   block_time             BIGINT
   created_at             BIGINT
-                                               # uk；(chain_id, token_address, block_time, id)；(chain_id, trader_address, block_time)；(chain_id, block_time)
+                                               # uk；(token_address, block_time, id)；(trader_address, block_time)；(block_time)
 
 launchpad_balance                              # 一个（币, 地址）一行；Transfer 消息里的 fromBalance / toBalance 直接 set，不累加
   chain_id               BIGINT
   token_address          CHAR(42)
-  holder_address         CHAR(42)              # uk (chain_id, token_address, holder_address)
+  holder_address         CHAR(42)              # uk (token_address, holder_address)
   holder_kind            VARCHAR(16)           # derived.fromKind / toKind：USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT；持有者榜标行、剔协议合约、资产页只列 USER
   balance                DECIMAL(65,0)
   block_number           BIGINT                # 水位线：只接受 (block_number, log_index) 更新的 Transfer（乱序保护）
   log_index              INT
   updated_at             BIGINT
-                                               # (chain_id, token_address, balance DESC)；(chain_id, holder_address)
+                                               # (token_address, balance DESC)；(holder_address)
 ```
 
 ## 派生
@@ -108,7 +108,7 @@ launchpad_balance                              # 一个（币, 地址）一行�
 launchpad_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
   chain_id               BIGINT
   token_address          CHAR(42)
-  trader_address         CHAR(42)              # uk (chain_id, trader_address, token_address)
+  trader_address         CHAR(42)              # uk (trader_address, token_address)
   qty_traded             DECIMAL(65,0)         # 买入量 − 卖出量，只算成交
   cost_quote             DECIMAL(36,18)        # 剩余成本，配对资产计
   cost_usd               DECIMAL(20,8)
@@ -120,12 +120,12 @@ launchpad_position                             # 一个（地址, 币）一行�
   buy_count / sell_count INT
   first_trade_at / last_trade_at BIGINT
   applied_block / applied_log BIGINT / INT     # 最后一笔按顺序应用的成交；更早的成交迟到 → 重算这一对
-                                               # (chain_id, trader_address, last_trade_at DESC)
+                                               # (trader_address, last_trade_at DESC)
 
 launchpad_kline_minute                         # 只有有成交的分钟才有行（用户 09-18 定）：桶由成交 handler upsert，没有任何定时任务补空桶
   chain_id               BIGINT
   token_address          CHAR(42)
-  period_start           BIGINT                # 整分钟；uk (chain_id, token_address, period_start)
+  period_start           BIGINT                # 整分钟；uk (token_address, period_start)
   open / high / low / close DECIMAL(36,18)     # 配对资产计，取成交后价 price_quote
   open_block / open_log  BIGINT / INT          # open 来自哪笔成交；迟到的更早一笔替换 open（乱序保护）
   close_block / close_log BIGINT / INT         # close 来自哪笔成交；更晚的才替换 close
@@ -135,14 +135,14 @@ launchpad_kline_minute                         # 只有有成交的分钟才有�
   volume_usd_curve       DECIMAL(20,8)
   volume_usd_pool        DECIMAL(20,8)
   trade_count            INT
-                                               # uk；(chain_id, period_start)
+                                               # uk；(period_start)
 
 launchpad_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
 
 launchpad_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
   chain_id               BIGINT
   day_index              INT                   # floor(区块时间 / 86400)
-  quote_asset_address    CHAR(42)              # uk (chain_id, day_index, quote_asset_address)
+  quote_asset_address    CHAR(42)              # uk (day_index, quote_asset_address)
   volume_quote_curve / volume_quote_pool DECIMAL(65,0)
   volume_usd_curve / volume_usd_pool     DECIMAL(20,8)
   trade_count            INT
@@ -151,7 +151,7 @@ launchpad_protocol_day                         # UTC 日 × 配对资产一行�
 ## 口径
 
 ```text
-launchpad_token                                # 一个发射币一行，uk (chain_id, token_address)；列表与搜索只读它
+launchpad_token                                # 一个发射币一行，uk (token_address)；列表与搜索只读它
 
   # ── 链上列：TokenLaunched / 毕业 / 成交 / Transfer handler 写 ──
   chain_id               BIGINT
@@ -213,8 +213,8 @@ launchpad_token                                # 一个发射币一行，uk (cha
   price_change_24h       DECIMAL(12,4)
 
   created_at / updated_at BIGINT
-                                               # uk (chain_id, token_address)；(chain_id, curve_address)；(chain_id, pool_id)；(creator_address)；(creator_user_id)；(og_key)
-                                               # 列表：(chain_id, status, last_trade_at)、(chain_id, status, market_cap_usd)、(chain_id, status, volume_usd_24h)、(chain_id, status, launched_at)
+                                               # uk (token_address)；(curve_address)；(pool_id)；(creator_address)；(creator_user_id)；(og_key)
+                                               # 列表：(status, last_trade_at)、(status, market_cap_usd)、(status, volume_usd_24h)、(status, launched_at)
 
 launchpad_coin_price                           # 配对资产美元价历史；线一每分钟追加；priceAt 与线二都读它
   asset_address          CHAR(42)              # 原生币用全零地址
@@ -227,7 +227,7 @@ launchpad_coin_price                           # 配对资产美元价历史；�
 
 launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
   chain_id               BIGINT
-  token_address          CHAR(42)              # uk (chain_id, token_address)
+  token_address          CHAR(42)              # uk (token_address)
   content_type           VARCHAR(8)            # DRAMA / VIDEO
   content_id             BIGINT                # drama.id 或 drama_episode.id
   bound_at               BIGINT
@@ -262,7 +262,7 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 | 表 | 分区键 | 保留 | 唯一键要求 |
 |---|---|---|---|
 | `launchpad_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求分区表的每个唯一索引（含主键）包含分区列：`uk (event_id, block_time)`、`pk (id, block_time)`。`block_time` 排在末尾，不参与查找，纯为满足规则。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
-| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (chain_id, tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
+| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
 
 其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
 
