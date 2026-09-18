@@ -46,7 +46,7 @@ contracts:                              # 完整清单见第 9 页
   - name: GraduatedPoolHook     # 固定地址。PoolRegistered / HookFeeCollected
   - name: V4GraduationReceiver  # 固定地址。V4PoolGraduated
   - name: PoolManager           # 固定地址，Uniswap v4 核心。Swap（按 poolId 过滤）
-  - name: QuoteAssetRegistry    # 固定地址。QuoteAssetConfigured
+  - name: QuoteAssetRegistry    # 固定地址。QuoteAssetConfigured：只存内部状态，不发消息
   # 费用 / 回购 / 治理类：订阅、空 handler、只进 raw_events
 
 field_selection:
@@ -101,7 +101,7 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 
 每个 handler 三步：解码 → 补 `derived` → 调 `publish` effect。不做任何口径。
 
-- **QuoteAssetConfigured**：upsert `QuoteAssetConfig`；发消息
+- **QuoteAssetConfigured**：upsert `QuoteAssetConfig`，**不发消息**（Java 不需要；TokenLaunched 的 derived 里带精度 / 阈值 / 初始储备）
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply` / `tokenDecimals`（`LaunchDefaults` 常数）、`curveBalance`（铸给曲线的量）、`quoteSymbol`（Effect 读 `symbol()`，原生币 `ETH`）；发消息
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
 - **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote、liquidityQuote；发消息

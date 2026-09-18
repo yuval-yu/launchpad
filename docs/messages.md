@@ -17,7 +17,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `trader` | CurveBuy · CurveSell · Swap | 要看整笔交易里本币 Transfer 的净流量才能穿透路由 / 中继；Java 单看一条消息看不到整笔 tx |
 | `baseFee` `creatorTax` `snipeTax` | CurveBuy · CurveSell | 拆分规则是合约代码（`_splitBuyFees`、卖出税率）；反狙击税在另一条事件里 |
 | `quoteReserve` `tokenReserve` `priceQuote` | CurveBuy · CurveSell | 曲线定价公式和常数是合约的；Java 里不许有合约数学 |
-| `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` `totalSupply` | TokenLaunched | 前三个要按 `quoteConfigHash` 查链上注册表；总供应是合约常数 |
+| `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` `totalSupply` | TokenLaunched | 前三个要按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）；总供应是合约常数 |
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
@@ -31,7 +31,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | 项 | 值 |
 |---|---|
 | topic | `launchpad.chain.events`（沿用扫链同学已定的名字），只有这一条 |
-| key | **所有事件同一种键**，取 token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址。要点是同一个币的发币、成交、Transfer、Swap 必须落在同一个分区；用 curve 地址做键也行（TokenLaunched 也带 curve），但不能混用 |
+| key | **所有事件同一种键**，取 token 地址（小写）。要点是同一个币的发币、成交、Transfer、Swap 必须落在同一个分区；用 curve 地址做键也行（TokenLaunched 也带 curve），但不能混用 |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证。**跨 key 没有依赖**：TokenLaunched 需要的配对资产参数已放进它自己的 `derived`，不依赖 `QuoteAssetConfigured` 先到 |
 | 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；初始余额由 `TokenLaunched.derived.curveBalance` 给出。这样同一个币的第一条消息一定是 TokenLaunched |
 | 投递 | 至少一次；Java 按 `eventId` 去重 |
@@ -78,23 +78,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 |
 | `payload.derived` | 【按事件】Envio 解析的字段，对象。见各事件 |
 
-## 十种事件
-
-### QuoteAssetConfigured（QuoteAssetRegistry）
-
-Java 写 `launchpad_quote_asset`（键 `config_hash`）。这是配对资产精度、毕业阈值的链上权威，Java 不再靠运营名单认精度。
-
-| 字段 | 含义与说明 |
-|---|---|
-| `args.asset` | 【原始】【必须】配对资产地址，零地址 = 原生 ETH。按地址关联运营名单（代号、图标、价源） |
-| `args.configHash` | 【原始】【必须】这份配置的哈希。`TokenLaunched.quoteConfigHash` 指向它；一份配置一行 |
-| `args.decimals` | 【原始】【必须】配对资产精度。所有配对资产金额换整枚；USDG(6) 猜成 18 会差 10¹² |
-| `args.graduationQuoteThreshold` | 【原始】【必须】毕业阈值，最小单位。进度条分母 |
-| `args.initialVirtualQuoteReserve` | 【原始】【必须】曲线初始虚拟储备。核对 Envio 算出的价格；存档 |
-| `args.enabled` | 【原始】【必须】当前是否允许新发币选它。运营名单缺价源时告警的对照 |
-| `args.version` | 【原始】【可选】模板 / 校准算法版本。存档 |
-| `args.targetNetGraduationQuote` | 【原始】【可选】目标净募集额。存档 |
-| `args.sourcePriceTimestamp` | 【原始】【可选】校准用的价格时间。存档 |
+## 九种事件
 
 ### TokenLaunched（LaunchFactory）
 
@@ -106,7 +90,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `args.curve` | 【原始】【必须】曲线合约地址。持有者榜标「Bonding Curve」行；审计对照 |
 | `args.creator` | 【原始】【必须】发币人地址。反查平台用户；Launches 页签；OG；发行者持仓警示 |
 | `args.quoteAsset` | 【原始】【必须】配对资产地址，零地址 = 原生 ETH。金额计价单位；取 USD 用哪个价；协议日按它分组 |
-| `args.quoteConfigHash` | 【原始】【必须】指向 QuoteAssetConfigured。关联精度与阈值 |
+| `args.quoteConfigHash` | 【原始】【可选】链上配对资产配置的哈希。存档 |
 | `args.launchConfigId` | 【原始】【必须】发射配置 id。存档 |
 | `args.curveFeeBps` | 【原始】【必须】基础手续费 BPS，发币时快照。详情页展示 |
 | `args.tickSpacing` | 【原始】【必须】毕业池的 tick spacing。存档 |
@@ -124,7 +108,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `args.socials.discord` | 【原始】【必须，可空串】详情页展示 |
 | `args.socials.farcaster` | 【原始】【必须，可空串】详情页展示 |
 | `args.launchSalt` | 【原始】【可选】CREATE2 salt。存档 |
-| `derived.quoteDecimals` | 【解析】【必须】配对资产精度，按 `quoteConfigHash` 查注册表得到。落币行，成交换算全靠它；Java 不查注册表 |
+| `derived.quoteDecimals` | 【解析】【必须】配对资产精度，Envio 按 `quoteConfigHash` 查它自己维护的注册表配置得到。落币行，成交换算全靠它；Java 不存注册表 |
 | `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 |
 | `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 |
 | `derived.totalSupply` | 【解析】【必须】总供应，合约常数 1e9 × 1e18。市值 = 价 × 它；持有占比分母；Java 不写合约常数 |
@@ -338,6 +322,7 @@ Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `t
 | 事件 | 原因 |
 |---|---|
 | `SnipeTaxCharged` `HookFeeCollected` | 已合并进 CurveBuy / Swap 的 `derived` |
+| `QuoteAssetConfigured` | Envio 自己订阅、自己存，用来给 TokenLaunched 补精度 / 阈值；Java 不需要这张表，「链上新注册了配对资产但运营没配价源」改为按币 USD 全空告警 |
 | `CurveBuyRefunded` | 退款不含在 `grossQuoteIn` 里，不影响任何数 |
 | `TradeRouter.Launched` | 与同 tx 的首买 CurveBuy 重复 |
 | `CurveCompleted` `LaunchGraduated` | 与 LaunchSwept / V4PoolGraduated 同 tx 信息重叠 |

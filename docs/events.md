@@ -45,7 +45,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | 〃 | 〃 | CurveBuyRefunded · FeesDistributed · FeesRescued · GraduationFeesDeferred · BuybackLocked · SnipeTaxExempted · AutoGraduationFailed | 空 |
 | 〃 | 〃 | Initialized · CurveCompleted · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅（与工厂事件重复） |
 | **LaunchToken** | 动态：TokenLaunched.token | Transfer | 发 |
-| **QuoteAssetRegistry** | 固定 | QuoteAssetConfigured | 发 |
+| **QuoteAssetRegistry** | 固定 | QuoteAssetConfigured | Envio 自存，不发（给 TokenLaunched 补精度 / 阈值） |
 | **V4GraduationReceiver** | 固定 | V4PoolGraduated | 发（Dust 四个事件不订阅） |
 | **GraduatedPoolHook** | 固定 | PoolRegistered | 发 |
 | 〃 | 〃 | HookFeeCollected | 合并进同 tx 的 Swap |
@@ -77,7 +77,6 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 | 合约 · 事件 | 参数 | Envio 补的 derived | Java 落到哪 |
 |---|---|---|---|
-| **QuoteAssetRegistry.QuoteAssetConfigured** | asset, version, targetNetGraduationQuote, initialVirtualQuoteReserve, graduationQuoteThreshold, decimals, sourcePriceTimestamp, enabled, configHash | — | `launchpad_quote_asset` |
 | **LaunchFactory.TokenLaunched** | token, curve, creator, launchSalt, quoteAsset, quoteConfigHash, launchConfigId, curveFeeBps, tickSpacing, creatorFeeRecipient, creatorTaxBps, buybackEnabled, name, symbol, logo, description, socials | quoteDecimals, initialVirtualQuoteReserve, graduationQuoteThreshold, totalSupply | `launchpad_token` 插入；`storyFun` 绑叙事 |
 | **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | token, trader, baseFee / creatorTax / snipeTax（按合约规则拆好）, quoteReserve, tokenReserve, priceQuote, liquidityQuote | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
 | **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上（无 snipeTax） | 同上，position 结一笔已实现盈亏 |

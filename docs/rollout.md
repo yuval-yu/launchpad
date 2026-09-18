@@ -8,9 +8,9 @@ title: 10 · 五个阶段、待拍板、风险
 
 契约先行，删除最后；每个阶段能单独编译、部署、验收。P1 与 P2 可并行。
 
-1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、十种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
+1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、九种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
 2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引、月分区；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：用 P0 的样例消息在 dev 跑通；1 万条 Transfer 的消费耗时有数。
-3. **P2 handler 与十一张表。** 新 topic、十个 handler；按[第 7 页](/tables)从零建十一张表（V1 开头 DROP 全部旧表）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
+3. **P2 handler 与十张表。** 新 topic、九个 handler；按[第 7 页](/tables)从零建十张表（V1 开头 DROP 全部旧表）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
 4. **P3 读侧切换。** K 线 / 成交 / 持有者 / 资产页 / 协议数据改读自家表；两个新接口；币行行情列改由 handler + 线二 / 线三维护；对比新旧响应。**出口**：test 环境前端全页面走通，响应与 DTO 契约一致。
 5. **P4 删除与收尾。** [第 5 页](/java)删除清单；dev / test 库跑 V1（不迁移任何旧数据）；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / QuickNode / Blockscout 字样。
 
@@ -35,6 +35,6 @@ title: 10 · 五个阶段、待拍板、风险
 | **审计表增长** | 磁盘 | 月分区、90 天后清空 raw_message、Envio 可重扫重投 |
 | **线一停机** | 那段时间的成交按停机前最后一个价折算，偏差不补 | 价格比区块时间旧超过一小时打 WARN；线一是最简单的 job，加监控 |
 | **外部价源不可用** | 对应那类配对资产的币 USD 字段为 null | 与现状一致，接受；每类一个源 |
-| **链上注册了新配对资产，运营名单还没配价源** | 币照常收录、金额按配对资产显示，USD 全空 | 线二对比 `launchpad_quote_asset` 与运营名单，缺价源就告警 |
+| **链上注册了新配对资产，运营名单还没配价源** | 币照常收录、金额按配对资产显示，USD 全空 | 线二发现某币的配对资产在运营名单里没有价源就告警（按币，不再存注册表） |
 | **合约升级不通知** | 新签名 Envio 收不到、不报错，新币悄悄不入库 | 「工厂最后一次发币时间」告警；对账脚本；订阅 Deployer 的 `ImplementationUpdated` 当告警源 |
 | **两条链都纯 RPC** | 回填慢；QuickNode 限流或额度不够；动态合约多了 `eth_getLogs` 请求变重 | W1 实测回填与追块的请求量；`sync` / `realtime` 分端点；额度按 Envio 一家算，Java 不再用 |

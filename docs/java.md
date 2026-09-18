@@ -12,7 +12,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 |---|---|---|
 | `mq/consumer` · `service/chain` 分发 | **改** | 监听 `launchpad.chain.events`；`ChainEventParser` 校验新信封（`txFrom` / `derived`）；registry 只按 `eventName` 路由，`LaunchSource` 删除；批量消费 + 分区并行；死信 topic |
 | `service/chain/pons/*` | **删** | PONS（之前接的外部发射台）时代的 handler 六个、`PonsArgs`、平台归属判定、`PairedAssetResolver`、负向表 |
-| `service/chain/handler/*` | **新** | 十种事件的 handler，见下 |
+| `service/chain/handler/*` | **新** | 九种事件的 handler，见下 |
 | `service/activity/*` · `controller/ActivityController` · `job/ActivityResolveJob` · `chain/decode/*` | **删** | 前端上报整条链路；`ActivityWriter` 的两来源合并退化成 insertIfAbsent |
 | `cmc/*` · `market/source/*` · `service/market/MarketRefreshService` / `Trigger` · `job/MarketSweepJob` / `CmcQuotaMonitor` | **删** | CMC 全部 |
 | `chain/ChainRpcClient` · `RpcContractProbe` · web3j 依赖 | **删** | Java 不再调 RPC |
@@ -39,7 +39,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **Kafka key 只核对、不定业务。** 监听器用 `@Header(KafkaHeaders.RECEIVED_KEY)`（批量模式 `record.key()`）拿到 key，解析层比对「key == 这条消息反查出的 token」，不等打 WARN。认币始终按消息体（曲线 `payload.address` 查 `curve_address`、Swap `args.id` 查 `pool_id`、Transfer `payload.address`），Envio 将来改键 Java 不用动。
 
-## handler：十种事件
+## handler：九种事件
 
 写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。
 
@@ -61,7 +61,6 @@ if (inserted) {                                               // 累加型只走
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
-| QuoteAssetConfigured | `launchpad_quote_asset` upsert | — | — |
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
 | CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
@@ -90,7 +89,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 不需要处理的：`launchpad_trade` insert-only；`launchpad_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
 
 ::: tip 一句话验收标准
-把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十一张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
+把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
 :::
 
 ## 定时线

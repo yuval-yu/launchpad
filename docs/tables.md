@@ -1,8 +1,8 @@
 ---
-title: 7 · 从零建表：十一张
+title: 7 · 从零建表：十张
 ---
 
-# 从零建表：十一张
+# 从零建表：十张
 
 线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
@@ -25,7 +25,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   tx_from                CHAR(42)
   block_time             BIGINT                # 毫秒；消息必带
   contract_address       CHAR(42)              # payload.address
-  token_address          CHAR(42)              # 该事件属于哪个币（derived.token / args.token / Transfer 的 address）；QuoteAssetConfigured 为 NULL
+  token_address          CHAR(42)              # 该事件属于哪个币（derived.token / args.token / Transfer 的 address）
   raw_message            LONGTEXT              # 原文；只保留最近 3 个月的分区，更早 DROP PARTITION
   status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED / WAITING_TOKEN（币还没到，不计次数，TokenLaunched 到了按币重投）
   attempts               INT
@@ -46,21 +46,6 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
 ## 事实
 
 ```text
-launchpad_quote_asset                          # QuoteAssetConfigured 投影；配对资产精度 / 阈值 / 初始储备的链上权威
-  chain_id               BIGINT
-  config_hash            CHAR(66)              # 这份配置的哈希
-  asset_address          CHAR(42)              # 零地址 = 原生 ETH
-  version                CHAR(66)
-  decimals               TINYINT
-  initial_virtual_quote_reserve DECIMAL(65,0)
-  graduation_quote_threshold    DECIMAL(65,0)
-  target_net_graduation_quote   DECIMAL(65,0)
-  enabled                TINYINT(1)
-  configured_at          BIGINT                # 区块时间
-  created_at / updated_at BIGINT
-                                               # UK  (config_hash)
-                                               # IDX (asset_address)
-
 launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
