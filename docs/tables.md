@@ -4,7 +4,7 @@ title: 7 · 从零建表：十一张
 
 # 从零建表：十一张
 
-线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
+线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。建议放在独立的 `launchpad` 库（见文末「库与分区」），表名保留 `launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
 约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑。
 
@@ -34,8 +34,8 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   kafka_offset           BIGINT
   received_at            BIGINT
   processed_at           BIGINT
-                                               # uk (event_id)；(chain_id, block_number, log_index)；(chain_id, token_address, block_number, log_index)；(status, processed_at)
-                                               # 按 received_at 月分区
+                                               # uk (event_id, block_time)；(chain_id, block_number, log_index)；(chain_id, token_address, block_number, log_index)；(status, processed_at)
+                                               # 按 block_time 月分区（分区列必须在唯一键里；不能用 received_at，见「库与分区」）
 ```
 
 ## 事实
@@ -58,7 +58,7 @@ launchpad_quote_asset                          # QuoteAssetConfigured 投影；�
 launchpad_trade                                # 一笔成交一行；除 pnl_* 外不修改
   chain_id               BIGINT
   tx_hash                CHAR(66)
-  log_index              INT                   # uk (chain_id, tx_hash, log_index)
+  log_index              INT                   # uk (chain_id, tx_hash, log_index, block_time)；按 block_time 月分区
   token_address          CHAR(42)
   venue                  VARCHAR(8)            # CURVE / POOL
   side                   VARCHAR(4)            # BUY / SELL
@@ -232,14 +232,31 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 
 `user_wallet_address` / `users`（归 user-wallet）：发行者反查与昵称头像；`drama` / `drama_episode`（归 app）：叙事绑定校验与卡片。规则不变。
 
-## 数据量估算
+## 数据量：三档估算
 
-| 表 | 量级 | 增长 |
-|---|---|---|
-| `launchpad_chain_event` | 最大：每笔成交 2～4 条消息 | 每天 1 万笔成交一年约 1,100 万行；raw_message 90 天后清空，按月分区 |
-| `launchpad_trade` | 币数 × 平均成交笔数 | 只增不改 |
-| `launchpad_balance` | 币数 × 持有地址数 | 只更新 |
-| `launchpad_kline_minute` | ≤ 成交笔数 | 只有有成交的分钟才有行 |
-| `launchpad_position` | 交易过的（地址 × 币）数 | 只更新 |
-| `launchpad_protocol_day` | 天数 × 配对资产数 | 每天几行 |
-| `launchpad_coin_price` | 资产数 × 每分钟一行 | 六个资产一年约 300 万行 |
+一笔成交平均带出 2.5 条消息（成交 + 1～2 条 Transfer）。`launchpad_chain_event` 每行含 `raw_message` 约 1.5 KB，其余表每行 100～300 B。
+
+| 日成交笔数 | 消息 / 天 | `chain_event` 一年 | `trade` 一年 | 其余表 |
+|---|---|---|---|---|
+| **1 千**（冷启动） | 2.5 千 | 90 万行 · 1.4 GB | 36 万行 · 0.1 GB | 都在十万行以下 |
+| **1 万**（正常） | 2.5 万 | 900 万行 · 14 GB | 365 万行 · 1 GB | `kline_minute` ≤ 365 万行；`balance` 十万级 |
+| **10 万**（火爆） | 25 万 | 9 千万行 · 140 GB | 3,650 万行 · 10 GB | `kline_minute` 千万级 |
+
+写入压力不是问题：10 万笔 / 天平均 3 条消息 / 秒，峰值按 50 倍算也就 150 条 / 秒，批量插入一条 SQL 就吃掉了。**问题只有一个：`chain_event` 的 `raw_message`**，它占了全部体积的 90% 以上。
+
+## 库与分区：建议
+
+**独立库，现在就分。** 建单独的 `launchpad` 库（schema），先放在 `mini_drama` 同一个 MySQL 实例上，将来量上来了整库挪到独立实例，Java 只改一个 JDBC URL。理由不是体积，是隔离：`mini_drama` 被五个服务共用，扫链消息是持续写入 + 大字段 + 月度删分区，不该和内容库共享 buffer pool 与 binlog。代价几乎为零：launchpad 对 `users` / `user_wallet_address` / `drama` / `drama_episode` 的四处读取本来就是应用层单独查（resolver + `IN` 列表），没有 SQL JOIN，同实例时写 `mini_drama.users` 也能查，拆实例时代码不变。
+
+**不分表。** 热查询全部带 `token_address` 或 `trader_address` 走索引，千万行级别 MySQL 单表没有压力；分表只会把「按币查」「按人查」两种访问路径拆到两个维度上，得不偿失。
+
+**按月分区，两张表。**
+
+| 表 | 分区键 | 保留 | 唯一键要求 |
+|---|---|---|---|
+| `launchpad_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求唯一键包含分区列：`uk (event_id, block_time)`。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
+| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (chain_id, tx_hash, log_index, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
+
+其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
+
+**可选的进一步减肥**：Transfer 是消息的大头、又只用来 set 余额，可以只落审计行不存 `raw_message`（Envio 的 `raw_events` 才是原文），`chain_event` 体积再降一半以上。要不要这么做等第一个月看真实量再定。
