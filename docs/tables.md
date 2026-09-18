@@ -1,14 +1,14 @@
 ---
-title: 7 · 从零建表：十二张
+title: 7 · 从零建表：十一张
 ---
 
-# 从零建表：十二张
+# 从零建表：十一张
 
 线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
 约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑。
 
-四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等）、**派生**（只由事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
+四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等；余额是消息给的绝对值，也归这类）、**派生**（只由成交事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
 
 ## 审计
 
@@ -70,7 +70,8 @@ launchpad_trade                                # 一笔成交一行；除 pnl_* 
   quote_amount           DECIMAL(65,0)         # 配对资产：买 = grossQuoteIn（实付），卖 = netQuoteOut（实收）
   net_quote_amount       DECIMAL(65,0)         # 买 = netQuoteIn，卖 = grossQuoteOut（进出定价储备的部分）
   fee_amount             DECIMAL(65,0)         # 事件 fee 总额；池内 = hookFee
-  creator_tax            DECIMAL(65,0)         # 买按 curveFeeBps:creatorTaxBps 拆；卖 = grossQuoteOut × creatorTaxBps / 10000；池内 = HookFeeCollected.creatorTax
+  base_fee               DECIMAL(65,0)         # derived.baseFee
+  creator_tax            DECIMAL(65,0)         # derived.creatorTax；池内 = HookFeeCollected.creatorTax
   snipe_tax              DECIMAL(65,0)         # derived.snipeTax，没有为 0
   quote_amount_whole     DECIMAL(36,18)        # quote_amount 按 quote_asset_decimals 换算的整枚数
   avg_price_quote        DECIMAL(36,18)        # 这笔均价：net_quote_amount ÷ token_amount；持仓成本用它
@@ -87,30 +88,19 @@ launchpad_trade                                # 一笔成交一行；除 pnl_* 
   created_at             BIGINT
                                                # uk；(chain_id, token_address, block_time, id)；(chain_id, trader_address, block_time)；(chain_id, block_time)
 
-launchpad_transfer                             # 发射币 Transfer 台账；唯一用途是让余额累加幂等
+launchpad_balance                              # 一个（币, 地址）一行；Transfer 消息里的 fromBalance / toBalance 直接 set，不累加
   chain_id               BIGINT
-  tx_hash                CHAR(66)
-  log_index              INT                   # uk (chain_id, tx_hash, log_index)
   token_address          CHAR(42)
-  from_address           CHAR(42)
-  to_address             CHAR(42)
-  value                  DECIMAL(65,0)
-  block_number           BIGINT
-  block_time             BIGINT
-                                               # uk；(chain_id, token_address, block_number)。按月分区
+  holder_address         CHAR(42)              # uk (chain_id, token_address, holder_address)
+  balance                DECIMAL(65,0)
+  block_number           BIGINT                # 只接受更新的区块（乱序保护）
+  updated_at             BIGINT
+                                               # (chain_id, token_address, balance DESC)；(chain_id, holder_address)
 ```
 
 ## 派生
 
 ```text
-launchpad_balance                              # 一个（币, 地址）一行；Transfer 首插成功时 from 减 to 加
-  chain_id               BIGINT
-  token_address          CHAR(42)
-  holder_address         CHAR(42)              # uk (chain_id, token_address, holder_address)
-  balance                DECIMAL(65,0)
-  updated_at             BIGINT
-                                               # (chain_id, token_address, balance DESC)；(chain_id, holder_address)
-
 launchpad_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
   chain_id               BIGINT
   token_address          CHAR(42)
@@ -174,7 +164,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   buyback_enabled        TINYINT(1)
   initial_virtual_quote_reserve DECIMAL(65,0)
   graduation_threshold   DECIMAL(65,0)
-  total_supply           DECIMAL(65,0)         # 初值 1e9 × 1e18；销毁时减
+  total_supply           DECIMAL(65,0)         # derived.totalSupply，Transfer 消息 set
   token_decimals         TINYINT               # 恒 18
   name                   VARCHAR(128)
   symbol                 VARCHAR(32)
@@ -199,7 +189,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
   cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)
-  holder_count           BIGINT                # Transfer handler 维护：余额 > 0 的地址数，含合约；读时剔曲线 / PoolManager
+  holder_count           BIGINT                # derived.positiveBalanceCount，Transfer 消息 set；含合约，读时剔曲线 / PoolManager
 
   # ── 口径列：线二写（每分钟） ──
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
@@ -248,7 +238,6 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 |---|---|---|
 | `launchpad_chain_event` | 最大：每笔成交 2～4 条消息 | 每天 1 万笔成交一年约 1,100 万行；raw_message 90 天后清空，按月分区 |
 | `launchpad_trade` | 币数 × 平均成交笔数 | 只增不改 |
-| `launchpad_transfer` | ≈ 成交笔数 × 1.5 | 按月分区 |
 | `launchpad_balance` | 币数 × 持有地址数 | 只更新 |
 | `launchpad_kline_minute` | ≤ 成交笔数 | 只有有成交的分钟才有行 |
 | `launchpad_position` | 交易过的（地址 × 币）数 | 只更新 |

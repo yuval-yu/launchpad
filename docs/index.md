@@ -61,7 +61,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <rect x="262" y="160" width="196" height="54" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-brand-1)"/>
 <text x="272" y="179" fill="currentColor" style="font-weight:600">handler</text>
 <text x="272" y="195" style="fill:var(--vp-c-text-2);font-size:11px">解码 · contractRegister</text>
-<text x="272" y="208" style="fill:var(--vp-c-text-2);font-size:11px">补 token / trader / 储备 / 同 tx 合并</text>
+<text x="272" y="208" style="fill:var(--vp-c-text-2);font-size:11px">补 token / trader / 储备 / 余额 / 费用拆分</text>
 <rect x="262" y="226" width="196" height="40" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
 <text x="272" y="243" fill="currentColor" style="font-weight:600">最小状态</text>
 <text x="272" y="258" style="fill:var(--vp-c-text-2);font-size:11px">curve / poolId → token，两个储备</text>
@@ -105,9 +105,9 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <line x1="880" y1="252" x2="928" y2="252" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 <rect x="930" y="200" width="220" height="110" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
 <text x="940" y="218" style="fill:var(--vp-c-text-3);font-size:10.5px;letter-spacing:.06em">事实表</text>
-<text x="940" y="235" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px">trade · transfer · quote_asset</text>
+<text x="940" y="235" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px">trade · balance · quote_asset</text>
 <text x="940" y="256" style="fill:var(--vp-c-text-3);font-size:10.5px;letter-spacing:.06em">派生表</text>
-<text x="940" y="273" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px">balance · position · kline_*</text>
+<text x="940" y="273" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px">position · kline_*</text>
 <text x="940" y="290" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px">protocol_day</text>
 <text x="1060" y="303" style="fill:var(--vp-c-text-3);font-size:10.5px">按区块时间固化的 USD 在这里</text>
 
@@ -142,7 +142,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 - **Robinhood Chain**（source of truth · 自研发射台合约）：**我们对合约唯一的要求是「事件要发全」**，见[第 9 页](/events)。
 - **Envio**（扫链 · 我们自己部署）：工厂地址写死，curve 与发射币用 `contractRegister` 动态注册。handler 解码事件、用一份**最小内部状态**（curve / poolId → token，两个曲线储备）补上 Java 单看一条消息定不了的字段、把同 tx 的配对事件合并，然后经 effect 发 Kafka。**不建业务实体、不算 USD、不出 GraphQL**，见[第 3 页](/envio)。
 - **Kafka**（`launchpad.chain.event`）：分区键 token，同币有序、至少一次投递。消息格式见[第 4 页](/messages)。
-- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 十个 handler；十二张新表（审计 / 事实 / 派生 / 口径）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
+- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 十个 handler；十一张新表（审计 / 事实 / 派生 / 口径）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
 - **MySQL**（`mini_drama` 库 · `launchpad_` 前缀）：审计表、币表、事实表、派生表、价格表、绑定表，见[第 7 页](/tables)。
 - **前端**：接口形状不变；`POST /activities` 下线。
 
@@ -166,6 +166,6 @@ Envio 停了：消息停止，列表与详情停在最后一条消息的状态�
 
 ## 三条纪律
 
-- **Envio 只做解码与「看整笔 tx 才能定」的补字段**，不做任何口径。它的输出是消息，不是表
-- **派生表只由事实行首次插入成功推进。** 余额、持仓、K 线桶、协议日都是累加型，这条是回放和重投不重复计数的唯一保证
+- **所有链上语义在 Envio**：解码、合约数学、ERC20 余额、交易者穿透、同 tx 配对。Java 里没有 ABI、没有 RPC、没有和合约挂钩的接口；它的输出是消息，不是表
+- **派生表只由成交事实行首次插入成功推进。** 持仓、K 线桶、协议日是累加型，这条是回放和重投不重复计数的唯一保证；余额不累加，消息给绝对值
 - **价格历史表是 USD 固化的前提。** 成交的 USD 按区块时间取「之前最近一行」，不是当前价；线一每分钟落行，停机窗口的空档给 null

@@ -21,10 +21,10 @@ title: 8 · 每个现有接口的字段落在哪
 | `POST /activities` · `GET /activities/{id}` | — | **删除**。前端交易完成后不再上报，刷新页面即可 |
 | `GET /assets/launches` · `/creator-fee-tokens` | `launchpad_token` 按 deployer | 无 |
 | `GET /assets/balances/tokens` | `launchpad_balance` 按 holder | 无。`syncedAt` = 最后一条 Transfer 消息的区块时间 |
-| `GET /assets/balances/quote-tokens` | 待定 | 见[第 10 页](/rollout) |
+| `GET /assets/balances/quote-tokens` | — | **下线**（[第 10 页](/rollout) Q1）：前端用钱包 SDK 直接读链 |
 | `GET /analytics/overview` | `launchpad_protocol_day` + `launchpad_token` | 无。`volumeUsd` 不再因为漏拍快照而 null，只在价格历史缺口时少算缺价的那几笔 |
 | 币↔叙事绑定 | `launchpad_token_content` | 无。来自发币事件 `socials.storyFun` 的路径，为空再看 `website` |
-| `GET /0x/gasless/*` | — | 待定 |
+| `GET /0x/gasless/*` | — | **移出 launchpad**（Q2） |
 
 ## K 线五档的数据源
 

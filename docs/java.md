@@ -19,9 +19,9 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 | `explorer/*` · `service/assets/BalanceSnapshotService` | **删** | Blockscout |
 | `price/CmcDexPriceSource` → `price/PriceSource` 接口 + 实现 | **换** | 按资产路由；`CoinPriceService` 加 `priceAt` |
 | `service/market/KlineService` · `MarketFeedService` · `TokenDetailService` · `service/assets/*` · `AnalyticsService` | **改** | 改读自家表，接口形状不变 |
+| `zeroex/*` · `controller/ZeroExGaslessController` | **移出** | 和合约交互挂钩的透传不留在 launchpad，见[第 10 页](/rollout) Q2 |
 | `job/*` 定时线 | **改** | 线一定价（有）、线二币视图（新）、线三滚动窗口（新） |
 | `controller/internal/*` | **改** | 回放加按币、按事件、全量重建；死信回灌 |
-| `zeroex/*` | 待定 | 见[第 10 页](/rollout) |
 
 ## 消费管线
 
@@ -37,7 +37,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 ## handler：十种事件
 
-写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。
+写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。
 
 ```java
 boolean inserted = trades.insertIfAbsent(trade);            // 唯一键 (chain_id, tx_hash, log_index)
@@ -60,7 +60,7 @@ if (inserted) {                                              // 累加型只走�
 | PoolRegistered | — | 币行 `pool_id` `pool_quote_asset` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_trade` | 币行 `price_quote` `pool_liquidity` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
-| Transfer | `launchpad_transfer` | — | `launchpad_balance` from 减 to 加；零地址销毁减 `total_supply`；余额跨 0 时 `holder_count` ±1 |
+| Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值；币行 `total_supply` `holder_count` set | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，距离超过 60 分钟给 null。取不到 USD 的成交照写，`amount_usd` 为 null，不事后补。
 
@@ -88,7 +88,7 @@ if (inserted) {                                              // 累加型只走�
 | `/assets/activity` | `launchpad_activity` | `launchpad_trade` 按 trader；trader 为 null 的不出 |
 | `/assets/positions` `/assets/history`（新） | — | `launchpad_position` / `launchpad_trade` 卖出行 |
 | `/assets/balances/tokens` | Blockscout | `launchpad_balance` 按 holder，只留发射币 |
-| `/assets/balances/quote-tokens` | QuickNode + Blockscout | 待定，见[第 10 页](/rollout) |
+| `/assets/balances/quote-tokens` | QuickNode + Blockscout | **下线**，前端直接读链（[第 10 页](/rollout) Q1）；launchpad 不保留 RPC |
 | `/analytics/overview` | 整点快照 | `launchpad_protocol_day` 90 天 + 币表按日数 |
 | `POST /activities` `GET /activities/{id}` | — | **删除** |
 
@@ -111,7 +111,7 @@ if (inserted) {                                              // 累加型只走�
 
 - **上报链路**：`controller/ActivityController`、`controller/internal/ActivityAdminController`、`service/activity/{ActivityReportService, ActivityResolveService, ActivityResolveTrigger, ActivityProperties, ActivityConfirmedEvent, RepositoryTokenLookup}`、`job/ActivityResolveJob`、`config/ActivityAsyncConfig`、`dto/activity/*`、`enums/ActivityStatus`、`chain/decode/{ReceiptDecoder, TokenLookup, PoolToken, TokenNetFlow, CurveTrades, ContractProbe}`、yml `launchpad.activity.*`、`docs/adr/0002`
 - **CMC**：`cmc/*`、`market/source/*`、`config/{CmcConfig, MarketSourceConfig, MarketRefreshAsyncConfig}`、`service/market/{MarketRefreshService, MarketRefreshTrigger}`、`job/{MarketSweepJob, CmcQuotaMonitor}`、`price/CmcDexPriceSource`、yml `launchpad.cmc.*`、`CMC_API_KEY`
-- **RPC**：`chain/{ChainRpcClient, ChainRpcException, RpcContractProbe, ChainProperties}`、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`
+- **一切链上处理**：`chain/**` 整个包（`ChainRpcClient`、`RpcContractProbe`、`ChainProperties`、`decode/*` 含 `ChainEvents` 的 topic 常量）、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`。仓库里不再有 ABI、事件签名、`eth_*` 字样
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
 - **PONS 时代的契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
 - **表**：全部旧 `launchpad_*` 表 DROP，按[第 7 页](/tables)重建；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写

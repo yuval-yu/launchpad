@@ -73,6 +73,15 @@ type Token @entity {                # 一个发射币一行
   trackedNetQuote: BigInt!        # 买入 += netQuoteIn，卖出 -= grossQuoteOut；曲线关闭后冻结
   trackedTokens: BigInt!          # 初值 TOTAL_SUPPLY；买入 -= tokensOut，卖出 += tokensIn
   pendingSnipeTax: BigInt!        # 同 tx SnipeTaxCharged 先到、CurveBuy 后到的传递位
+  totalSupply: BigInt!            # 初值 TOTAL_SUPPLY；Transfer 到零地址时减
+  positiveBalanceCount: Int!      # 正余额地址数，含合约；Transfer 时按跨 0 增减
+}
+
+type Balance @entity {              # (token, holder) 一行；Transfer handler 维护，消息里给变动后的值
+  id: ID!                         # token-holder
+  token: String! @index
+  holder: String!
+  balance: BigInt!
 }
 
 type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quoteConfigHash 取
@@ -91,11 +100,11 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`；发消息
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply`（`LaunchDefaults.TOTAL_SUPPLY`）；发消息
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
-- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、snipeTax（取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
+- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
 - **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
 - **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
-- **Transfer**：原样发消息，`derived` 为空
+- **Transfer**：更新 `Balance(token, from)` 与 `Balance(token, to)`；`to` 为零地址减 `Token.totalSupply`；余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、totalSupply、positiveBalanceCount（都是**变动后的绝对值**）；发消息。Java 拿到就 set，不累加
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`
 
 ## 交易者归属：在 Envio 里做，用整笔收据算

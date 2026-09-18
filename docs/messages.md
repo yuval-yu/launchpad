@@ -94,7 +94,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `buyer` `recipient` `grossQuoteIn` `netQuoteIn` `tokensOut` `fee` |
-| derived | `token` · `trader`（名义 = recipient；是合约则按整笔收据里本币 Transfer 净流入最大的地址；解不出退回 recipient。规则见[第 3 页](/envio)）· `snipeTax`（同 tx `SnipeTaxCharged.amount`，没有则 `"0"`）· `quoteReserve` `tokenReserve`（成交后 `trackedNetQuote` / `trackedTokens`）· `priceQuote`（成交后边际价，十进制小数字符串） |
+| derived | `token` · `trader`（名义 = recipient；是合约则按整笔收据里本币 Transfer 净流入最大的地址；解不出退回 recipient。规则见[第 3 页](/envio)）· `baseFee` `creatorTax` `snipeTax`（`fee` 按合约规则拆好；snipeTax 来自同 tx `SnipeTaxCharged`，没有则 `"0"`）· `quoteReserve` `tokenReserve`（成交后 `trackedNetQuote` / `trackedTokens`）· `priceQuote`（成交后边际价，十进制小数字符串） |
 | Java 写 | `launchpad_trade`（CURVE / BUY）；首插成功推进 balance 无关（余额靠 Transfer）、position、kline、protocol_day；币行 set 储备 / 价格 / last_trade_at |
 
 ```json
@@ -104,7 +104,8 @@ title: 4 · 消息契约：一个信封、十种事件
   "args": { "buyer": "0x096a…4fd4", "recipient": "0x2bf5…7675",
             "grossQuoteIn": "100000000000000", "netQuoteIn": "99000000000000",
             "tokensOut": "714285714285714285714285715", "fee": "1000000000000" },
-  "derived": { "token": "0x3d7e…4cdd", "trader": "0x2bf5…7675", "snipeTax": "0",
+  "derived": { "token": "0x3d7e…4cdd", "trader": "0x2bf5…7675",
+               "baseFee": "666666666667", "creatorTax": "333333333333", "snipeTax": "0",
                "quoteReserve": "99000000000000", "tokenReserve": "285714285714285714285714285",
                "priceQuote": "0.000000000000140" }
 }
@@ -115,7 +116,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `seller` `recipient` `tokensIn` `grossQuoteOut` `netQuoteOut` `fee` |
-| derived | `token` · `trader`（名义 = seller；是合约则按整笔收据净流出最大的地址）· `quoteReserve` `tokenReserve` `priceQuote` |
+| derived | `token` · `trader`（名义 = seller；是合约则按整笔收据净流出最大的地址）· `baseFee` `creatorTax`（卖出 = grossQuoteOut × creatorTaxBps ÷ 10000）· `quoteReserve` `tokenReserve` `priceQuote` |
 | Java 写 | `launchpad_trade`（CURVE / SELL），其余同买入；position 结一笔已实现盈亏 |
 
 ### LaunchSwept（LaunchFactory）
@@ -173,10 +174,20 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `from` `to` `value` |
-| derived | 无（`payload.address` 就是 token） |
-| Java 写 | `launchpad_transfer` 首插成功 → `launchpad_balance` from 减 to 加；`to` 为零地址减 `total_supply`；余额跨 0 时 `holder_count` ±1 |
+| derived | `fromBalance` `toBalance`（这笔转账**之后**双方的余额；零地址一侧给 null）· `totalSupply`（销毁后的总供应）· `positiveBalanceCount`（正余额地址数，含合约） |
+| Java 写 | `launchpad_balance` 两行 **set** 成 `fromBalance` / `toBalance`；币行 set `total_supply` / `holder_count`。全是绝对值，重放、重复投递无副作用；同币消息有序是前提 |
 
-一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头，Java 侧按 5.2 的批量消费处理。
+```json
+"payload": {
+  "address": "0x3d7e…4cdd",
+  "signature": "Transfer(address,address,uint256)",
+  "args": { "from": "0x73d4…31eb", "to": "0x2bf5…7675", "value": "714285714285714285714285715" },
+  "derived": { "fromBalance": "285714285714285714285714285", "toBalance": "714285714285714285714285715",
+               "totalSupply": "1000000000000000000000000000", "positiveBalanceCount": "2" }
+}
+```
+
+一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头，Java 侧按批量消费处理。
 
 ## 不发的事件
 

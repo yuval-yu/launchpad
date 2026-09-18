@@ -13,10 +13,25 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 | 曲线发出的日志属于哪个 token（`curve → token`）、PoolManager 的 Swap 属于哪个 token（`poolId → token`） | 这笔算买还是卖、计不计入成交额、含不含税 |
 | **交易者是谁**：用整笔收据里本币 Transfer 的净流量穿透路由 / 中继（[第 3 页](/envio)）。Java 单看一条消息看不到整笔 tx，上一版放 Java 就是认不准 v4 买家的原因 | 交易者对应哪个平台用户；Activity 按谁查 |
 | 同 tx 的配对事件合并：`SnipeTaxCharged` 并进 `CurveBuy`，`HookFeeCollected` 并进 `Swap` | 费用怎么拆、怎么展示 |
-| 成交后曲线的两个储备与由此推出的价格（handler 里累加两个数就有） | 现在值多少美元、市值、24h 量、涨跌：**要乘配对资产的价**，只能 Java 算 |
-| 池内 Swap 里本币是 currency0 还是 currency1、方向、两侧金额 | 持有人数剔哪些合约、发行者持仓占比 |
+| 成交后曲线的两个储备与由此推出的价格；每次 Transfer 后双方的余额、总供应、正余额地址数 | 现在值多少美元、市值、24h 量、涨跌：**要乘配对资产的价**，只能 Java 算 |
+| 池内 Swap 里本币是 currency0 还是 currency1、方向、两侧金额；费用按 BPS 拆成基础费 / 创作者税 / 反狙击税 | 持有人数剔哪些合约、发行者持仓占比 |
 | 发币事件原文：metadata、socials（含 `storyFun`）、creator | 发行者对应哪个平台用户、`storyFun` 路径绑到哪部剧、OG 是谁 |
 | 每条消息带确认深度之后才发 | 「曲线一关就算毕业」这类状态名 |
+
+## Java 里不许出现的东西
+
+**launchpad 里不做任何链上数据处理**：不扫链、不解析合约、没有任何和合约挂钩的接口。下面这些一旦出现，说明消息缺字段，去补消息，不在 Java 里补逻辑。
+
+| 不许有 | 现在放哪 |
+|---|---|
+| 任何 RPC 客户端、web3j、`eth_*` 调用、区块浏览器客户端 | Envio 的 Effect |
+| ABI、事件签名、topic 常量、日志解码 | Envio 的 handler |
+| 合约数学：曲线定价公式、`sqrtPriceX96` 换算、currency0 / currency1 判方向、费用按 BPS 拆分 | Envio 算好放进 `derived` |
+| ERC20 语义：余额累加、销毁减供应、正余额地址数 | Envio 维护内部 `Balance`，消息给**变动后的绝对值**，Java 只 set |
+| 交易者穿透、同 tx 事件配对 | Envio |
+| 配对资产的链上余额、0x 下单透传这类和合约交互挂钩的接口 | 不在 launchpad 里（[第 10 页](/rollout) Q1 / Q2） |
+
+Java 里剩下的全是**对自家表的算术与业务口径**：USD 乘法、成交表求和、K 线分桶、持仓成本、叙事绑定、发行者反查、状态名。
 
 ## 一个币的四个链上状态
 
@@ -48,7 +63,7 @@ Java 存三个时间戳 `curve_closed_at` / `pool_created_at` / `rescued_at`，`
 |---|---|
 | 任何 USD | Java：成交 handler 固化、线二 / 线三现价 |
 | 状态名（GRADUATED 等） | Java 线二由三个时间戳推 |
-| 持有人数、发行者持仓占比 | Java 由余额表算 |
+| 剔除合约后的持有人数、发行者持仓占比 | Java 由余额表算（正余额地址数本身由 Envio 给） |
 | 滚动 24h | Java 线三 |
 | 叙事绑定、OG、发行者是哪个平台用户 | Java 线二 |
 | 持仓成本与盈亏 | Java 成交 handler 维护 `launchpad_position` |
