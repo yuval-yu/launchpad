@@ -40,15 +40,20 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。
 
 ```java
-boolean inserted = trades.insertIfAbsent(trade);            // 唯一键 (chain_id, tx_hash, log_index)
+// 同一个事务里
+Position pos = positions.lock(chainId, trader, token);        // SELECT … FOR UPDATE，没有就是空持仓
+Trade trade = Trade.from(msg, priceAt(...), pos);             // 卖出行的 pnl_* 在这里用「卖出前的持仓」算好，不回填
+boolean inserted = trades.insertIfAbsent(trade);              // 唯一键 (chain_id, tx_hash, log_index)；重复 → false
 tokens.setReservesAndPrice(token, quoteReserve, tokenReserve, priceQuote);   // set 型，幂等
 tokens.advanceLastTradeAt(token, blockTime);
-if (inserted) {                                              // 累加型只走一次
-    positions.applyTrade(trade);                             // 买入加成本，卖出结盈亏并写回 trade.pnl_*
+if (inserted) {                                               // 累加型只走一次
+    positions.apply(pos, trade);                              // 买入加成本，卖出扣成本、累加已实现盈亏
     klines.upsertMinute(trade); klines.upsertDay(trade);
     protocolDays.add(trade);
 }
 ```
+
+**`launchpad_trade` 只插入、不更新。** 交易者、USD、盈亏全部在插入前定好：交易者来自消息，USD 按区块时间取价一次固化，盈亏用插入前锁住的持仓算。插入后没有任何路径改它：重复投递 `insertIfAbsent` 返回 false 不碰行；全量重建是 truncate 再插；USD 缺价不事后补。
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|

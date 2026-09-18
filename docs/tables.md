@@ -55,7 +55,7 @@ launchpad_quote_asset                          # QuoteAssetConfigured 投影；�
   created_at / updated_at BIGINT
                                                # (chain_id, asset_address)
 
-launchpad_trade                                # 一笔成交一行；除 pnl_* 外不修改
+launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
   log_index              INT                   # uk (chain_id, tx_hash, log_index, block_time)；按 block_time 月分区
@@ -78,7 +78,7 @@ launchpad_trade                                # 一笔成交一行；除 pnl_* 
   price_quote            DECIMAL(36,18)        # 成交后边际价，derived.priceQuote；K 线用它
   quote_usd_price        DECIMAL(20,8)         # priceAt(配对资产, block_time)；NULL = 缺价
   amount_usd             DECIMAL(20,8)         # quote_amount_whole × quote_usd_price
-  cost_quote_released    DECIMAL(36,18)        # 卖出才有：释放的成本
+  cost_quote_released    DECIMAL(36,18)        # 卖出才有：释放的成本；插入前用卖出前的持仓算好，不回填
   cost_usd_released      DECIMAL(20,8)
   pnl_quote              DECIMAL(36,18)        # 卖出才有
   pnl_usd                DECIMAL(20,8)
