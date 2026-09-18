@@ -4,13 +4,13 @@ title: 4 · 消息契约：一个信封、十种事件
 
 # 消息契约：一个信封、十种事件
 
-一条消息 = 一条已解码的合约事件日志 + Envio 补的几个字段。信封沿用 `pons.event` 的形状，Java 的解析、审计、去重、重放全部复用。事件名直接用 ABI 名，没有别名。
+一条消息 = 一条已解码的合约事件日志 + Envio 补的几个字段。信封是我们自己定的（下表），Java 的解析、审计、去重、重放都按它写。事件名直接用 ABI 名，没有别名。
 
 ## topic 与投递
 
 | 项 | 值 |
 |---|---|
-| topic | `launchpad.chain.event`（一条 topic = 一种发射来源，Java 里对应 `LaunchSource.STORYFUN`） |
+| topic | `launchpad.chain.event`，只有这一条 |
 | key | token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址 |
 | 分区数 | 按吞吐定，≥ Java 消费者并行度 |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证 |
@@ -41,21 +41,19 @@ title: 4 · 消息契约：一个信封、十种事件
 }
 ```
 
-| 字段 | 含义 | 变化 |
-|---|---|---|
-| `eventId` | `v1:{chainId}:{blockHash}:{logIndex}:{removed}`，去重键 | 不变 |
-| `eventName` | ABI 事件名 | 不变 |
-| `chainId` `blockNumber` `logIndex` | 十进制字符串 | 不变 |
-| `blockHash` `txHash` | 小写 | 不变 |
-| `blockTimestamp` | 区块时间，秒，十进制字符串 | **必带、非 0**。Java 不再有查区块的兜底 |
-| `txFrom` | 交易发起人，小写 | **新增**，备查列 |
-| `removed` | 恒 `false` | 语义不变 |
-| `payload.address` | 发出日志的合约地址，小写 | 不变 |
-| `payload.signature` | 规范签名 | 不变 |
-| `payload.args` | ABI 具名参数；struct 展开成对象（如 `socials`） | 不变 |
-| `payload.derived` | **新增**。Envio 补的字段，与 `args` 分开放：回放时能分辨是链上原文错还是补字段错 | |
-
-`metadata` 段不再有：自研 `TokenLaunched` 的 metadata 全在 `args` 里。
+| 字段 | 含义 |
+|---|---|
+| `eventId` | `v1:{chainId}:{blockHash}:{logIndex}:{removed}`，去重键；`v1` 是契约版本 |
+| `eventName` | ABI 事件名 |
+| `chainId` `blockNumber` `logIndex` | 十进制字符串 |
+| `blockHash` `txHash` | 小写 |
+| `blockTimestamp` | 区块时间，秒，十进制字符串；**必带、非 0**，Java 没有查区块的兜底 |
+| `txFrom` | 交易发起人，小写；备查列 |
+| `removed` | 恒 `false`（确认深度后才发） |
+| `payload.address` | 发出日志的合约地址，小写 |
+| `payload.signature` | 规范签名 |
+| `payload.args` | ABI 具名参数；struct 展开成对象（如 `socials`） |
+| `payload.derived` | Envio 补的字段，与 `args` 分开放：回放时能分辨是链上原文错还是补字段错 |
 
 ## 十种事件
 
@@ -125,7 +123,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `token` `quoteAmount` `tokenAmount` |
-| Java 写 | 币行 `curve_closed_at` / `pool_quote` / `pool_token`，`status = GRADUATED` |
+| Java 写 | 币行 `curve_closed_at` / `swept_quote` / `swept_token`，`status = GRADUATED` |
 
 ### V4PoolGraduated（V4GraduationReceiver）
 
@@ -140,7 +138,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `poolId` `token` `quoteAsset` |
-| Java 写 | 币行 `pool_id` / `pool_quote_token`（与 V4PoolGraduated 谁先到谁写） |
+| Java 写 | 币行 `pool_id` / `pool_quote_asset`（与 V4PoolGraduated 谁先到谁写） |
 
 ### LaunchGraduationRescued（LaunchFactory）
 
@@ -196,4 +194,4 @@ title: 4 · 消息契约：一个信封、十种事件
 
 - `eventName` = ABI 名，`args` 字段名 = ABI 参数名，Envio 不改名
 - 加字段不算破坏；改名、删字段、改类型要换 `eventId` 前缀版本（`v1` → `v2`）并双写一段时间
-- Java 的 `PonsEventParser` 只校验信封，`args` / `derived` 由各 handler 用 `requireArg` 取，缺了进 FAILED
+- Java 的 `ChainEventParser` 只校验信封，`args` / `derived` 由各 handler 用 `requireArg` 取，缺了进 FAILED

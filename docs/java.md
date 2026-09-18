@@ -4,15 +4,15 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 # Java 改造点：消费、投影、派生、读接口
 
-现有的「Kafka → `PonsEventParser` → 审计表 → `ChainEventProjector` → handler」管线整体保留，**新来源 = 新 topic + 新 `LaunchSource` + 一组新 handler**，PONS 那组整体下线。改动集中在四处：消费管线的吞吐与可靠性、一组新 handler 与派生表、定时线、读接口换表。删除的东西在最后一节。
+现有的「Kafka → 解析 → 审计表 → `ChainEventProjector` → handler」管线的**代码骨架**保留（监听、审计、按事件名分发、独立事务、状态回写、重投、回放），其余按新方案重写：一条 topic、按 `eventName` 路由、十个新 handler；旧 handler、旧表、`launch_source` 概念整体删除，不留兼容。改动集中在四处：消费管线的吞吐与可靠性、handler 与派生表、定时线、读接口换表。删除的东西在最后一节。
 
 ## 改什么，一览
 
 | 模块 | 处置 | 说明 |
 |---|---|---|
-| `mq/consumer` · `service/chain` 分发 | **改** | 新监听器 `launchpad.chain.event` → `LaunchSource.STORYFUN`；解析层加 `txFrom` / `derived`；去掉 FILTERED 预过滤；批量消费 + 分区并行；死信 topic |
-| `service/chain/pons/*` | **删** | PONS handler 六个、`PonsArgs`、归属判定、`PairedAssetResolver`、`launchpad_ignored_launch` |
-| `service/chain/storyfun/*` | **新** | 十种事件的 handler，见下 |
+| `mq/consumer` · `service/chain` 分发 | **改** | 监听 `launchpad.chain.event`；`ChainEventParser` 校验新信封（`txFrom` / `derived`）；registry 只按 `eventName` 路由，`LaunchSource` 删除；批量消费 + 分区并行；死信 topic |
+| `service/chain/pons/*` | **删** | 旧 handler 六个、`PonsArgs`、平台归属判定、`PairedAssetResolver`、负向表 |
+| `service/chain/handler/*` | **新** | 十种事件的 handler，见下 |
 | `service/activity/*` · `controller/ActivityController` · `job/ActivityResolveJob` · `chain/decode/*` | **删** | 前端上报整条链路；`ActivityWriter` 的两来源合并退化成 insertIfAbsent |
 | `cmc/*` · `market/source/*` · `service/market/MarketRefreshService` / `Trigger` · `job/MarketSweepJob` / `CmcQuotaMonitor` | **删** | CMC 全部 |
 | `chain/ChainRpcClient` · `RpcContractProbe` · web3j 依赖 | **删** | Java 不再调 RPC |
@@ -25,15 +25,15 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 ## 消费管线
 
-**新监听器。** `@KafkaListener(topics = "launchpad.chain.event")`，打 `LaunchSource.STORYFUN`。`PonsEventMessage` 加 `txFrom` 与 `payload.derived`，解析层只校验信封，`derived` 与 `args` 一样交给 handler。
+**监听与解析。** `@KafkaListener(topics = "launchpad.chain.event")`；`ChainEventMessage` / `ChainEventParser` 按[第 4 页](/messages)的信封写，只校验信封，`derived` 与 `args` 一样交给 handler。审计表唯一键只剩 `event_id`。
 
-**去掉入库前过滤。** 自研工厂发的全收，`ChainEventIngestService` 里按 curve 查币的 FILTERED 分支删掉。乱序（成交先于发币到达）不丢：handler 抛可重试异常 → FAILED → `ChainEventRetryJob` 一分钟后重投；`TokenStateService.patch` 与曲线 handler 里「币不存在」的两种处理（SKIPPED / FILTERED）统一成这一种。
+**不做入库前过滤。** 工厂发的全收，没有「是不是我们的币」的判断。乱序（成交先于发币到达）不丢：handler 抛可重试异常 → FAILED → `ChainEventRetryJob` 一分钟后重投。
 
 **批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条：一条 `INSERT IGNORE … VALUES (…),(…)` 落审计，再按 `(blockNumber, logIndex)` 逐条投影，整批 ack；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
 
 **死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败的消息发到 `launchpad.chain.event.DLT`，内部接口按 offset 区间回灌。现在这两种情况只剩一行日志，消息等于丢了。
 
-**审计表加两列一分区。** `token_address`（从 `derived.token` / `args.token` / `payload.address` 抽）给按币回放；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
+**审计表。** `token_address` 列（从 `derived.token` / `args.token` / `payload.address` 抽）给按币回放；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
 
 ## handler：十种事件
 
@@ -55,9 +55,9 @@ if (inserted) {                                              // 累加型只走�
 | QuoteAssetConfigured | `launchpad_quote_asset` upsert | — | — |
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key` | — |
 | CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_day、protocol_day、币行 `trade_count` / `cum_volume_*` |
-| LaunchSwept | — | 币行 `curve_closed_at` `pool_quote` `pool_token` `status` | — |
+| LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `pool_position_id` `pool_liquidity` `price_quote` | — |
-| PoolRegistered | — | 币行 `pool_id` `pool_quote_token` | — |
+| PoolRegistered | — | 币行 `pool_id` `pool_quote_asset` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_trade` | 币行 `price_quote` `pool_liquidity` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
 | Transfer | `launchpad_transfer` | — | `launchpad_balance` from 减 to 加；零地址销毁减 `total_supply`；余额跨 0 时 `holder_count` ±1 |
@@ -71,7 +71,7 @@ if (inserted) {                                              // 累加型只走�
 | 线 | 输入 | 算 | 写 | 频率 |
 |---|---|---|---|---|
 | **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_coin_price` 追加分钟行 | 每分钟 |
-| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd`、`deployer_holding_pct`；新绑定钱包的发行者补 `deployer_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
+| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd`、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
 | **三 · 滚动窗口** | `launchpad_trade` 最近 24h + `launchpad_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close） | 币行两列 | 每分钟；没成交的币置 0 |
 
 协议数据页不需要定时线：`launchpad_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。
@@ -113,7 +113,7 @@ if (inserted) {                                              // 累加型只走�
 - **CMC**：`cmc/*`、`market/source/*`、`config/{CmcConfig, MarketSourceConfig, MarketRefreshAsyncConfig}`、`service/market/{MarketRefreshService, MarketRefreshTrigger}`、`job/{MarketSweepJob, CmcQuotaMonitor}`、`price/CmcDexPriceSource`、yml `launchpad.cmc.*`、`CMC_API_KEY`
 - **RPC**：`chain/{ChainRpcClient, ChainRpcException, RpcContractProbe, ChainProperties}`、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
-- **PONS**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`mq/consumer/ChainEventListener` 的 `pons.event` 监听、`KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`
-- **表**：`launchpad_activity`、`launchpad_ignored_launch`、`launchpad_volume_snapshot`；`service/analytics/VolumeSnapshotService`
+- **旧扫链契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
+- **表**：全部旧 `launchpad_*` 表 DROP，按[第 7 页](/tables)重建；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
 - **测试**：上述模块的单测与 `MarketRefreshLiveIT` / `ChainRpcClientIT`；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
 - `CLAUDE.md`「行情」「币价与 USD 折算」「活动：两个来源」「链上余额」「链上事件」五节重写
