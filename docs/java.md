@@ -63,7 +63,7 @@ if (inserted) {                                               // 累加型只走
 |---|---|---|---|
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
 | CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
-| LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
+| CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |

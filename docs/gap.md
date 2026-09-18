@@ -28,7 +28,7 @@ title: 11 · 与扫链现状的差距
 | TokenLaunched | 有 | 要 | args 齐全（17 个参数含 `socials.storyFun`），缺 `derived` |
 | CurveBuy | 有 | 要 | args 齐全，`payload.token.token` 已给；缺 `derived` |
 | CurveSell | 有 | 要 | 同上 |
-| CurveCompleted | 有，带 `payload.token.token` | 我们订的是 **LaunchSwept** | **现状的 CurveCompleted 直接用**，token 已在消息里，不用换 |
+| CurveCompleted | 有，带 `payload.token.token` | 要 | 字段齐，直接用；契约里已改为订这条，不再提 LaunchSwept |
 | CurveBuyRefunded | 有 | 不要 | 退款不含在 `grossQuoteIn` 里，不影响任何数。多发无害，Java 会 SKIPPED，但白占审计表 |
 | AutoGraduationFailed | 有 | 不要 | 排查用，多发无害 |
 | **V4PoolGraduated** | 无 | 要 | 建池、初始价、`pool_id` |
@@ -86,7 +86,7 @@ title: 11 · 与扫链现状的差距
 3. **补 Transfer 与 Swap 两种事件。** 没有前者没有余额和持有者；没有后者已毕业的币是死的。
 4. **补 CurveBuy / CurveSell 的其余 derived**（费用拆分、储备、价格、流动性）与 TokenLaunched 的 derived。
 5. **补毕业三事件、Heartbeat。**
-6. `CurveBuyRefunded` / `AutoGraduationFailed` 停发；加 `txFrom`；`CurveCompleted` 换不换 `LaunchSwept` 随他们。
+6. `CurveBuyRefunded` / `AutoGraduationFailed` 停发；config 里去掉 `Approval`；加 `txFrom`。
 
 第 1、2 条做完 Java 就能开始联调曲线阶段；第 3 条做完才有毕业后与持有者；其余按顺序补。
 

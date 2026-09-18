@@ -181,11 +181,11 @@ launchpad_token                                # 一个发射币一行；列表�
   launch_block_number    BIGINT
   launch_log_index       INT
   launched_at            BIGINT                # 发币区块时间；NEWEST / OLDEST 排序键
-  curve_closed_at        BIGINT                # LaunchSwept
+  curve_closed_at        BIGINT                # 曲线关闭时间（CurveCompleted）
   pool_created_at        BIGINT                # V4PoolGraduated
   rescued_at             BIGINT                # LaunchGraduationRescued
   pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接、与 Swap 对照）；池的其它信息不存
-  swept_quote / swept_token DECIMAL(65,0)      # LaunchSwept 交给毕业流程的量
+  swept_quote / swept_token DECIMAL(65,0)      # 曲线关闭时交给毕业流程的配对资产 / 本币数量
   quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变
   liquidity_quote        DECIMAL(65,0)         # 这个币现在的流动性有多少，以配对资产计（最小单位）；曲线阶段和毕业后都由消息给，每笔成交更新；乘配对资产美元价就是 liquidity_usd
   token_reserve          DECIMAL(65,0)

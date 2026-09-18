@@ -38,7 +38,7 @@ Java 里剩下的全是**对自家表的算术与业务口径**：USD 乘法、�
 | 合约状态 | 发生了什么 | 触发事件 | Java 里的 `status` |
 |---|---|---|---|
 | `Trading` | 曲线上正常买卖 | TokenLaunched | CURVE |
-| `Swept` | 曲线卖完，`closeCurve` 把储备收进工厂。曲线关闭、池子还没建 | LaunchSwept | **GRADUATED**（现行口径「曲线一关就算毕业」） |
+| `Swept` | 曲线卖完，`closeCurve` 把储备收进工厂。曲线关闭、池子还没建 | CurveCompleted（同 tx 的 LaunchSwept 等价，扫链给的是前者） | **GRADUATED**（现行口径「曲线一关就算毕业」） |
 | `Graduated` | `graduate` 把储备交给 Receiver，Uniswap v4 池建好、流动性永久锁定，此后在池里交易 | V4PoolGraduated | GRADUATED |
 | `Rescued` | 卡在 Swept 超过 7 天没建成池，治理把储备释放走。永远不会有池 | LaunchGraduationRescued | RESCUED，展示口径待产品定 |
 

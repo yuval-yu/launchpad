@@ -36,14 +36,16 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 | 合约 | 地址 | 事件 | 处理 |
 |---|---|---|---|
-| **LaunchFactory** | 固定 | TokenLaunched · LaunchSwept · LaunchGraduationRescued | 发 |
+| **LaunchFactory** | 固定 | TokenLaunched · LaunchGraduationRescued | 发 |
+| 〃 | 〃 | LaunchSwept | 不发（与曲线的 CurveCompleted 同 tx 等价，扫链发的是后者） |
 | 〃 | 〃 | CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 留档（当前接口不出这两个字段） |
 | 〃 | 〃 | LaunchConfigAdded · LaunchConfigUpdated · LaunchFeeUpdated · LaunchEnabledUpdated · SnipeTaxUpdated · MaxCreatorTaxUpdated · CreatorFeeRecipientChangeProposed · CreatorFeeRecipientChangeCancelled · AllowlistedLauncherUpdated | 空 |
 | 〃 | 〃 | LaunchGraduated · LaunchForwarderUpdated · ProtocolConfigured · DeployersConfigured | 不订阅 |
-| **BondingCurve** | 动态：TokenLaunched.curve | CurveBuy · CurveSell | 发 |
+| **BondingCurve** | 动态：TokenLaunched.curve | CurveBuy · CurveSell · CurveCompleted | 发 |
 | 〃 | 〃 | SnipeTaxCharged | 合并进同 tx 的 CurveBuy |
 | 〃 | 〃 | CurveBuyRefunded · FeesDistributed · FeesRescued · GraduationFeesDeferred · BuybackLocked · SnipeTaxExempted · AutoGraduationFailed | 空 |
-| 〃 | 〃 | Initialized · CurveCompleted · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅（与工厂事件重复） |
+| 〃 | 〃 | CurveCompleted | 发（曲线关闭 = 毕业） |
+| 〃 | 〃 | Initialized · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅（与工厂事件重复） |
 | **LaunchToken** | 动态：TokenLaunched.token | Transfer | 发 |
 | **QuoteAssetRegistry** | 固定 | QuoteAssetConfigured | Envio 自存，不发（给 TokenLaunched 补精度 / 阈值） |
 | **V4GraduationReceiver** | 固定 | V4PoolGraduated | 发（Dust 四个事件不订阅） |
@@ -80,7 +82,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | **LaunchFactory.TokenLaunched** | token, curve, creator, launchSalt, quoteAsset, quoteConfigHash, launchConfigId, curveFeeBps, tickSpacing, creatorFeeRecipient, creatorTaxBps, buybackEnabled, name, symbol, logo, description, socials | quoteDecimals, initialVirtualQuoteReserve, graduationQuoteThreshold, totalSupply | `launchpad_token` 插入；`storyFun` 绑叙事 |
 | **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | token, trader, baseFee / creatorTax / snipeTax（按合约规则拆好）, quoteReserve, tokenReserve, priceQuote, liquidityQuote | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
 | **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上（无 snipeTax） | 同上，position 结一笔已实现盈亏 |
-| **LaunchFactory.LaunchSwept** | token, quoteAmount, tokenAmount | — | 币行 `curve_closed_at`，status = GRADUATED。与曲线的 `CurveCompleted` 同 tx，用这条因为带 token |
+| **BondingCurve.CurveCompleted** | recipient, quoteAmount, tokenAmount + token.token | — | 币行 `curve_closed_at` / `swept_quote` / `swept_token`，status = GRADUATED |
 | **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` |
 | **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价）, liquidityQuote | 币行 `pool_created_at` / `pool_id` / `price_quote` |
 | **LaunchFactory.LaunchGraduationRescued** | token, recipient, quoteAmount, tokenAmount | — | 币行 `rescued_at`，status = RESCUED。**产品要定这种币怎么展示** |
@@ -107,7 +109,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 - **TradeRouter.Launched**(token, curve, recipient, launcher, quoteSpent, tokensReceived)：发射首买的重复表述，同 tx 里已有一条 CurveBuy
 - **TradeRouter.Rescued**、**V4GraduationReceiver** 的四个 Dust 事件、**BondingCurve.Initialized**、各 Deployer 的 **CloneDeployed** / **ImplementationUpdated**、**HookDeployed**、各 **ReceiverConfigured** / **FactoryConfigured** / **ProtocolConfigured** / **DeployersConfigured**：部署期与运维事件，与数据无关
-- **BondingCurve.CurveCompleted**、**LaunchFactory.LaunchGraduated**：与 LaunchSwept、V4PoolGraduated 同 tx 且信息重叠，各取一条即可
+- **LaunchFactory.LaunchSwept**、**LaunchFactory.LaunchGraduated**：与 CurveCompleted、V4PoolGraduated 同 tx 且信息重叠，各取一条即可
 - **曲线与 Hook 各自的 CreatorFeeRecipientUpdated / BuybackEnabledUpdated**：工厂那份带 token，够用
 
 ## 一个币的生命周期
@@ -115,7 +117,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | 合约状态 | 进入的事件 | 我们的 `status` | 说明 |
 |---|---|---|---|
 | `Trading` | TokenLaunched | CURVE | 曲线可买卖；卖完可售库存后自动尝试 closeCurve，失败发 AutoGraduationFailed，可重试 |
-| `Swept` | LaunchSwept（同 tx CurveCompleted） | GRADUATED | 储备进工厂，等 graduate。**「曲线一关就算毕业」落在这里** |
+| `Swept` | CurveCompleted（同 tx LaunchSwept） | GRADUATED | 储备进工厂，等 graduate。**「曲线一关就算毕业」落在这里** |
 | `Graduated` | V4PoolGraduated（同 tx PoolRegistered、LaunchGraduated、PositionLocked） | GRADUATED | 池建好、全区间流动性永久锁定；此后成交来自 PoolManager.Swap |
 | `Rescued` | LaunchGraduationRescued | **待定** | Swept 超过 7 天没能建池，治理把储备释放给指定地址。终态，没有池。**展示口径待定（[第 10 页](/rollout) Q5）**，去问合约与产品 |
 
