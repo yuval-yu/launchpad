@@ -27,7 +27,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **监听与解析。** `@KafkaListener(topics = "launchpad.chain.events")`；`ChainEventMessage` / `ChainEventParser` 按[第 4 页](/messages)的信封写，只校验信封，`derived` 与 `args` 一样交给 handler。审计表唯一键只剩 `event_id`。
 
-**不做入库前过滤。** 工厂发的全收，没有「是不是我们的币」的判断。乱序（成交先于发币到达）不丢：handler 抛可重试异常 → FAILED → `ChainEventRetryJob` 一分钟后重投。
+**不做入库前过滤。** 工厂发的全收，没有「是不是我们的币」的判断。**认币靠自己的表**：曲线事件用 `payload.address` 查 `curve_address`，Swap 用 `args.id` 查 `pool_id`，Transfer 的 `payload.address` 就是 token；消息里若带 `derived.token` 直接用。查不到 = 发币消息还没到 → WAITING_TOKEN，TokenLaunched 投影后按币重投。
 
 **批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条：一条 `INSERT IGNORE … VALUES (…),(…)` 落审计，再按 `(blockNumber, logIndex)` 逐条投影，整批 ack；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
 

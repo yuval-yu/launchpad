@@ -14,7 +14,6 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 | 解析字段 | 出现在 | Java 为什么不能自己来 |
 |---|---|---|
-| `token` | CurveBuy · CurveSell · Swap | 曲线事件的 `payload.address` 是 curve、Swap 只有 poolId，`curve → token`、`poolId → token` 的映射只有 Envio 有 |
 | `trader` | CurveBuy · CurveSell · Swap | 要看整笔交易里本币 Transfer 的净流量才能穿透路由 / 中继；Java 单看一条消息看不到整笔 tx |
 | `baseFee` `creatorTax` `snipeTax` | CurveBuy · CurveSell | 拆分规则是合约代码（`_splitBuyFees`、卖出税率）；反狙击税在另一条事件里 |
 | `quoteReserve` `tokenReserve` `priceQuote` | CurveBuy · CurveSell | 曲线定价公式和常数是合约的；Java 里不许有合约数学 |
@@ -32,7 +31,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | 项 | 值 |
 |---|---|
 | topic | `launchpad.chain.events`（沿用扫链同学已定的名字），只有这一条 |
-| key | token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址 |
+| key | **所有事件同一种键**，取 token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址。要点是同一个币的发币、成交、Transfer、Swap 必须落在同一个分区；用 curve 地址做键也行（TokenLaunched 也带 curve），但不能混用 |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证。**跨 key 没有依赖**：TokenLaunched 需要的配对资产参数已放进它自己的 `derived`，不依赖 `QuoteAssetConfigured` 先到 |
 | 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；初始余额由 `TokenLaunched.derived.curveBalance` 给出。这样同一个币的第一条消息一定是 TokenLaunched |
 | 投递 | 至少一次；Java 按 `eventId` 去重 |
@@ -160,7 +159,7 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
 | `args.netQuoteIn` | 【原始】【必须】进入定价储备的部分。均价 `avg_price_quote`，持仓成本用 |
 | `args.tokensOut` | 【原始】【必须】用户拿到的本币。成交数量；持仓数量 |
 | `args.fee` | 【原始】【必须】费用总额。存档；核对拆分之和 |
-| `derived.token` | 【解析】【必须】这条曲线对应的发射币。消息里只有 curve 地址；所有表按 token 关联 |
+| `derived.token` | 【解析】【可选】这条曲线对应的发射币。Java 能用 `payload.address`（curve）在 `launchpad_token.curve_address` 反查，查不到进 WAITING_TOKEN 等发币消息；给了省一次查询 |
 | `derived.trader` | 【解析】【必须】真实交易者。名义地址不是合约就是它；是合约按整笔收据穿透；穿透不出退回名义地址。Activity、持仓、持有者归属都按它，规则见[第 3 页](/envio) |
 | `derived.baseFee` | 【解析】【必须】基础手续费，按合约 `_splitBuyFees` 从 `fee` 拆出。详情页费用展示 |
 | `derived.creatorTax` | 【解析】【必须】创作者税。同上 |
@@ -196,7 +195,7 @@ Java 写 `launchpad_trade`（CURVE / SELL），持仓结一笔已实现盈亏，
 | `args.grossQuoteOut` | 【原始】【必须】离开定价储备的配对资产，扣费前。均价 |
 | `args.netQuoteOut` | 【原始】【必须】用户实收。**成交额**、USD、盈亏 |
 | `args.fee` | 【原始】【必须】费用总额。存档 |
-| `derived.token` | 【解析】【必须】同 CurveBuy |
+| `derived.token` | 【解析】【可选】同 CurveBuy |
 | `derived.trader` | 【解析】【必须】真实交易者，名义地址是 `seller`，是合约按整笔收据净流出最大的地址。同 CurveBuy |
 | `derived.baseFee` | 【解析】【必须】基础手续费 = `fee − creatorTax`。费用展示 |
 | `derived.creatorTax` | 【解析】【必须】创作者税 = `grossQuoteOut × creatorTaxBps ÷ 10000` 向下取整。费用展示 |
@@ -269,7 +268,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 |
 | `args.tick` | 【原始】【可选】存档 |
 | `args.fee` | 【原始】【可选】池费率。存档 |
-| `derived.token` | 【解析】【必须】这个池对应的发射币。消息里只有 poolId |
+| `derived.token` | 【解析】【可选】这个池对应的发射币。Java 能用 `args.id` 在 `launchpad_token.pool_id` 反查（PoolRegistered / V4PoolGraduated 先到）；给了省一次查询 |
 | `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 |
 | `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity |
 | `derived.tokenAmount` | 【解析】【必须】本币数量，绝对值，最小单位。成交数量 |
