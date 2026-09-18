@@ -4,7 +4,7 @@ title: 7 · 从零建表：十一张
 
 # 从零建表：十一张
 
-线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。建议放在独立的 `launchpad` 库（见文末「库与分区」），表名保留 `launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
+线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
 
 约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑。
 
@@ -246,7 +246,7 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 
 ## 库与分区：建议
 
-**独立库，现在就分。** 建单独的 `launchpad` 库（schema），先放在 `mini_drama` 同一个 MySQL 实例上，将来量上来了整库挪到独立实例，Java 只改一个 JDBC URL。理由不是体积，是隔离：`mini_drama` 被五个服务共用，扫链消息是持续写入 + 大字段 + 月度删分区，不该和内容库共享 buffer pool 与 binlog。代价几乎为零：launchpad 对 `users` / `user_wallet_address` / `drama` / `drama_episode` 的四处读取本来就是应用层单独查（resolver + `IN` 列表），没有 SQL JOIN，同实例时写 `mini_drama.users` 也能查，拆实例时代码不变。
+**不建独立库（用户 09-18 定）。** 前期只有审计表大，体积靠按月分区 + 月度 `DROP PARTITION` 解决，其余表都在千万行以下，放 `mini_drama` 库即可。将来要不要拆，看两个信号：日成交稳定超过 5 万笔，或 `mini_drama` 实例上其他服务的慢查询能对应到 launchpad 的写入高峰。真要拆代价也小：launchpad 读 `users` / `user_wallet_address` / `drama` / `drama_episode` 的四处本来就是应用层单独查、没有 SQL JOIN，整库挪走只改一个 JDBC URL。
 
 **不分表。** 热查询全部带 `token_address` 或 `trader_address` 走索引，千万行级别 MySQL 单表没有压力；分表只会把「按币查」「按人查」两种访问路径拆到两个维度上，得不偿失。
 
