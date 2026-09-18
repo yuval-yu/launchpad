@@ -96,7 +96,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `buyer` `recipient` `grossQuoteIn` `netQuoteIn` `tokensOut` `fee` |
-| derived | `token` · `trader`（名义 = recipient；是合约则按同 tx 本币 Transfer 净流入最大的地址；解不出退回 recipient）· `snipeTax`（同 tx `SnipeTaxCharged.amount`，没有则 `"0"`）· `quoteReserve` `tokenReserve`（成交后 `trackedNetQuote` / `trackedTokens`）· `priceQuote`（成交后边际价，十进制小数字符串） |
+| derived | `token` · `trader`（名义 = recipient；是合约则按整笔收据里本币 Transfer 净流入最大的地址；解不出退回 recipient。规则见[第 3 页](/envio)）· `snipeTax`（同 tx `SnipeTaxCharged.amount`，没有则 `"0"`）· `quoteReserve` `tokenReserve`（成交后 `trackedNetQuote` / `trackedTokens`）· `priceQuote`（成交后边际价，十进制小数字符串） |
 | Java 写 | `launchpad_trade`（CURVE / BUY）；首插成功推进 balance 无关（余额靠 Transfer）、position、kline、protocol_day；币行 set 储备 / 价格 / last_trade_at |
 
 ```json
@@ -117,7 +117,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `seller` `recipient` `tokensIn` `grossQuoteOut` `netQuoteOut` `fee` |
-| derived | `token` · `trader`（名义 = seller；是合约则按净流出最大的地址）· `quoteReserve` `tokenReserve` `priceQuote` |
+| derived | `token` · `trader`（名义 = seller；是合约则按整笔收据净流出最大的地址）· `quoteReserve` `tokenReserve` `priceQuote` |
 | Java 写 | `launchpad_trade`（CURVE / SELL），其余同买入；position 结一笔已实现盈亏 |
 
 ### LaunchSwept（LaunchFactory）
@@ -154,7 +154,7 @@ title: 4 · 消息契约：一个信封、十种事件
 | 段 | 字段 |
 |---|---|
 | args | `id` `sender` `amount0` `amount1` `sqrtPriceX96` `liquidity` `tick` `fee` |
-| derived | `token` `poolId` · `side`（BUY / SELL，按本币是 currency0 还是 currency1 与 delta 符号定）· `trader`（同 tx 本币 Transfer 净流量：买取净流入最大、卖取净流出最大；解不出为 null）· `tokenAmount` `quoteAmount`（绝对值，最小单位）· `priceQuote`（成交后价）· `hookFee` `creatorTax`（同 tx `HookFeeCollected`；`currency` 也带上，可能是本币也可能是配对资产） |
+| derived | `token` `poolId` · `side`（BUY / SELL，按本币是 currency0 还是 currency1 与 delta 符号定）· `trader`（**由 Envio 用整笔收据算**：本币 Transfer 净流量，买取净流入最大、卖取净流出最大；解不出为 null。规则见[第 3 页](/envio)）· `tokenAmount` `quoteAmount`（绝对值，最小单位）· `priceQuote`（成交后价）· `hookFee` `creatorTax`（同 tx `HookFeeCollected`；`currency` 也带上，可能是本币也可能是配对资产） |
 | Java 写 | `launchpad_trade`（POOL）；trader 为 null 的行照写但不进 position、不进 Activity；币行 `price_quote` / `pool_liquidity` / `last_trade_at` |
 
 ```json

@@ -9,10 +9,10 @@ title: 10 · 五个阶段、待拍板、风险
 契约先行，删除最后；每个阶段能单独编译、部署、验收。P1 与 P2 可并行。
 
 1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、十种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
-2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引、月分区；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：PONS 事件在改造后的管线上跑通 dev；1 万条 Transfer 的消费耗时有数。
-3. **P2 新来源 + 事实表 / 派生表（与 CMC 并存）。** 新 topic、`LaunchSource.STORYFUN`、`service/chain/storyfun/` 十个 handler；建八张新表；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
+2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引、月分区；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：用 P0 的样例消息在 dev 跑通；1 万条 Transfer 的消费耗时有数。
+3. **P2 新来源 + 事实表 / 派生表。** 新 topic、`LaunchSource.STORYFUN`、`service/chain/storyfun/` 十个 handler；建八张新表；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
 4. **P3 读侧切换。** K 线 / 成交 / 持有者 / 资产页 / 协议数据改读自家表；两个新接口；币行行情列改由 handler + 线二 / 线三维护；对比新旧响应。**出口**：test 环境前端全页面走通，响应与 DTO 契约一致。
-5. **P4 删除与收尾。** [第 5 页](/java)删除清单；三张旧表 DROP；dev / test 库重建；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / QuickNode / Blockscout 字样。
+5. **P4 删除与收尾。** [第 5 页](/java)删除清单；三张旧表 DROP；dev / test 库重建（不迁移任何旧数据）；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / QuickNode / Blockscout 字样。
 
 ## 待拍板
 
@@ -23,8 +23,7 @@ title: 10 · 五个阶段、待拍板、风险
 | Q3 | **`liquidity_usd`** 前端是否真展示 | 不展示就删列，不发 ModifyLiquidity |
 | Q4 | **确认深度 N** | 由链的最终性定，Robinhood 几乎不重组，取小值 |
 | Q5 | **RESCUED 币怎么展示** | 数据先收；隐藏 / 标「已终止」/ 留在已毕业分区待产品定 |
-| Q6 | **历史数据**：dev / test 上 PONS 时代的币和活动行 | 清空重建，自研合约是新地址 |
-| Q7 | **配对资产价源**具体选哪家 | 见[第 6 页](/pricing)候选 |
+| Q6 | **配对资产价源**具体选哪家 | 见[第 6 页](/pricing)候选 |
 
 ## 风险
 

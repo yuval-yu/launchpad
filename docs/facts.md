@@ -11,7 +11,7 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 | Envio · 解码与补字段 | Java · 事实落库、派生、口径、USD |
 |---|---|
 | 曲线发出的日志属于哪个 token（`curve → token`）、PoolManager 的 Swap 属于哪个 token（`poolId → token`） | 这笔算买还是卖、计不计入成交额、含不含税 |
-| 名义交易者是合约时穿透中继找真实交易者（同 tx 的 Transfer 净流量） | 交易者对应哪个平台用户；Activity 按谁查 |
+| **交易者是谁**：用整笔收据里本币 Transfer 的净流量穿透路由 / 中继（[第 3 页](/envio)）。Java 单看一条消息看不到整笔 tx，上一版放 Java 就是认不准 v4 买家的原因 | 交易者对应哪个平台用户；Activity 按谁查 |
 | 同 tx 的配对事件合并：`SnipeTaxCharged` 并进 `CurveBuy`，`HookFeeCollected` 并进 `Swap` | 费用怎么拆、怎么展示 |
 | 成交后曲线的两个储备与由此推出的价格（handler 里累加两个数就有） | 现在值多少美元、市值、24h 量、涨跌：**要乘配对资产的价**，只能 Java 算 |
 | 池内 Swap 里本币是 currency0 还是 currency1、方向、两侧金额 | 持有人数剔哪些合约、发行者持仓占比 |

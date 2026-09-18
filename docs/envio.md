@@ -91,15 +91,52 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`；发消息
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply`（`LaunchDefaults.TOTAL_SUPPLY`）；发消息
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
-- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、trader、snipeTax（取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
+- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、snipeTax（取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
 - **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
-- **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、trader、tokenAmount、quoteAmount、priceQuote；**fee / creatorTax 由同 tx 紧随其后的 HookFeeCollected 补**，所以 Swap 的消息在 HookFeeCollected handler 里发（同 tx、同区块，Envio 顺序执行）
-- **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax，发消息
-- **Transfer**：原样发消息，`derived` 为空。**trader 穿透用的就是它**：CurveBuy / Swap 的 handler 看同 tx 里本币的 Transfer 净流量（Envio 在一个区块内按 logIndex 顺序执行，Transfer 在 CurveBuy 之前已处理；池内 Transfer 在 Swap 之后，所以 Swap 的 trader 在 Transfer handler 里回填后再发）
+- **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
+- **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
+- **Transfer**：原样发消息，`derived` 为空
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`
 
-::: info 同 tx 配对的三组
-`SnipeTaxCharged → CurveBuy`、`Swap → Transfer → HookFeeCollected`、`LaunchSwept ↔ CurveCompleted`。Envio 在同一区块内按 logIndex 顺序跑 handler，用 `Token` 上的传递位或按 `txHash` 暂存就能配对；具体先后以 W1 真实 tx 为准。
+## 交易者归属：在 Envio 里做，用整笔收据算
+
+上一版把这件事放在 Java，靠事件里的名义地址加「是合约就拉收据穿透」，v4 池内成交的买家一直认不准。原因不在规则，在**Java 单看一条消息看不到整笔交易**。这件事只有看得到整笔 tx 的一方能做，就是 Envio。
+
+**规则（与上一版 Java 里已验证过的一致）：**
+
+1. **名义交易者**：`CurveBuy.recipient` / `CurveSell.seller`；池内没有名义地址
+2. **净流量**：取这笔 tx 里本币的全部 `Transfer`，按地址算净流入（to 加、from 减），剔除零地址和成交场所（curve / PoolManager）。买入取**净流入最大**的地址，卖出取**净流出最大**的地址
+3. **曲线**：名义地址不是合约 → 直接用；是合约（路由、0x Settler、聚合器）→ 用净流量；净流量解不出 → 退回名义地址（曲线成交不丢行）
+4. **池内**：一律用净流量；解不出 → `trader = null`，Java 照写成交行但不进 Activity 与持仓
+5. **「是合约」只决定要不要走净流量，不决定归属**：AA / 合约钱包本身就是用户，净流量会正确选中它；中继收多少转多少净为 0，自然出局
+
+**为什么不能靠区块内 handler 顺序凑。** 池内一笔买入的日志顺序是 `Swap → HookFeeCollected → Transfer(PoolManager → 用户)`，Transfer 在 Swap **之后**；经 0x Settler 时还有第二条 `Settler → 用户`。Swap handler 跑的时候这些 Transfer 还没到，等 Transfer handler 回填又不知道哪条是最后一条。所以不用顺序，直接问链：
+
+```ts
+// 输入定了输出就定：某 tx 里某 token 的全部 Transfer。cache: true，重跑直接命中
+export const tokenTransfersInTx = createEffect({
+  name: "tokenTransfersInTx",
+  input: { txHash: S.string, token: S.string },
+  output: S.array(S.schema({ from: S.string, to: S.string, value: S.string })),
+  cache: true,
+}, async ({ input }) => {
+  // eth_getTransactionReceipt(txHash) → 只留 address == token 且 topic0 == Transfer 的日志
+});
+
+export const isContract = createEffect({          // eth_getCode != 0x；cache: true
+  name: "isContract", input: { address: S.string }, output: S.boolean, cache: true,
+}, async ({ input }) => { /* … */ });
+```
+
+- 收据在 handler 跑的时候一定已经在链上（区块已出），Effect 走 RPC，`cache: true` 落库，重跑不再打链
+- 曲线成交只在名义地址是合约时才调 `tokenTransfersInTx`；直调曲线的成交零额外 RPC；`isContract` 的命中集合很小（几个路由 / 中继），缓存一暖就没有 RPC
+- 池内成交每笔一次收据；量与池内成交数同阶，可接受
+- 排除名单（PoolManager、TradeRouter、Universal Router、curve）写在 config，只用于第 2 条的「成交场所」剔除，**不用于判定用户**
+
+**Java 侧完全不碰这件事**：拿到 `derived.trader` 直接落 `trader_address`；两个来源合并、CONFLICT 判定、`ContractProbe`、`TokenNetFlow` 全部删除。
+
+::: info 同 tx 配对的两组
+`SnipeTaxCharged → CurveBuy`（税在前，用 `Token.pendingSnipeTax` 传递）、`Swap → HookFeeCollected`（费在后，暂存 Swap 到 HookFeeCollected 再发）。这两组顺序由合约代码决定，是确定的；Transfer 不参与配对，归属走收据。
 :::
 
 ## 发送：确认深度、顺序、至少一次
@@ -108,7 +145,7 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **分区键 = token 地址。** 发币、曲线、毕业、Transfer、Swap 都能关联到 token；同币事件严格有序，异币并行
 - **至少一次。** producer `acks=all`、重试开；Java 按 `eventId` 去重。**不做 exactly-once**
 - **发送失败。** effect 抛异常，Envio 会重跑这一批；不吞
-- **回填与重放。** 首次上线从 `start_block` 全量扫一遍并全部发出；以后要重放某段，改 `start_block` 重跑或用官方的 `envio start --restart`，Java 靠 eventId 去重
+- **重放。** 要重放某段，改 `start_block` 重跑或用官方的 `envio start --restart`，Java 靠 eventId 去重。新合约从部署区块起扫，没有历史包袱
 
 ## 运维
 
