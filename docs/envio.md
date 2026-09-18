@@ -40,8 +40,8 @@ chains:                                 # 主网 / 测试网各一份 config，�
 rollback_on_reorg: true
 
 contracts:                              # 完整清单见第 9 页
-  - name: LaunchFactory         # 固定地址。TokenLaunched / LaunchSwept / LaunchGraduationRescued
-  - name: BondingCurve          # TokenLaunched 时 contractRegister。CurveBuy / CurveSell / SnipeTaxCharged
+  - name: LaunchFactory         # 固定地址。TokenLaunched / LaunchGraduationRescued
+  - name: BondingCurve          # TokenLaunched 时 contractRegister。CurveBuy / CurveSell / CurveCompleted / SnipeTaxCharged
   - name: LaunchToken           # TokenLaunched 时 contractRegister。Transfer
   - name: GraduatedPoolHook     # 固定地址。PoolRegistered / HookFeeCollected
   - name: V4GraduationReceiver  # 固定地址。V4PoolGraduated
@@ -105,7 +105,7 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply` / `tokenDecimals`（`LaunchDefaults` 常数）、`curveBalance`（铸给曲线的量）、`quoteSymbol`（Effect 读 `symbol()`，原生币 `ETH`）；发消息
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
 - **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote、liquidityQuote；发消息
-- **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
+- **CurveCompleted / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息（曲线关闭订曲线的 CurveCompleted，工厂的 LaunchSwept 不订）
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote、liquidityQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
 - **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
 - **流动性 `derived.liquidityQuote`**（CurveBuy / CurveSell / V4PoolGraduated / Swap 都给，以配对资产计）：曲线阶段 = `trackedNetQuote × 2`；毕业后 = 池两侧按池价折成配对资产之和，全区间仓位下两侧各 `L × (√P − √P_lower)` 与 `L × (√P_upper − √P) ÷ (√P × √P_upper)`，按 currency0 / 1 方向与精度整理。Java 只乘配对资产价，不存池子信息；W1 用真实池对 `balanceOf(PoolManager)` 核一次
