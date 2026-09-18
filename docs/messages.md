@@ -82,7 +82,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.address` | 【必须】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 | 已有 |
 | `payload.signature` | 【可选】规范签名。审计用；没有同名重载，不靠它路由 | 缺（可选，不催） |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 | 已有 |
-| `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（精度、阈值、总供应）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
+| `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（配对资产精度、阈值、初始储备）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
 | `payload.derived` | 【按事件】这一条事件算出来的字段，对象：trader、费用拆分、成交后价格与储备、流动性、余额。见各事件 | **缺**（所有事件都没有） |
 
 ## 九种事件
