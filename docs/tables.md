@@ -170,8 +170,8 @@ launchpad_token                                # 一个发射币一行；列表�
   buyback_enabled        TINYINT(1)
   initial_virtual_quote_reserve DECIMAL(65,0)
   graduation_threshold   DECIMAL(65,0)
-  total_supply           DECIMAL(65,0)         # 币的总供应（最小单位）；发币时 10 亿枚，有人销毁就减；市值 = 价 × 它
-  token_decimals         TINYINT               # 发射币的精度，合约固定 18；来自消息
+  total_supply           DECIMAL(65,0)         # 币的总供应（最小单位）；发币时取 Java 常量 LaunchConstants.TOTAL_SUPPLY（10 亿 × 1e18），有人销毁就按 Transfer 消息减；市值 = 价 × 它
+  token_decimals         TINYINT               # 发射币的精度，合约固定 18；取 Java 常量 LaunchConstants.TOKEN_DECIMALS
   name                   VARCHAR(128)
   symbol                 VARCHAR(32)
   description            VARCHAR(512)          # 对外 tagline

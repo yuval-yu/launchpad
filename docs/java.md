@@ -41,7 +41,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 ## handler：九种事件
 
-写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。
+写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。唯一的合约知识是 `LaunchConstants` 里三个编译死的常量：`TOTAL_SUPPLY = 1e9 × 1e18`、`TOKEN_DECIMALS = 18`、铸给曲线的初始余额 = `TOTAL_SUPPLY`（用户 09-18 定：全局常量不走消息）。
 
 ```java
 // 同一个事务里
@@ -61,7 +61,7 @@ if (inserted) {                                               // 累加型只走
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
-| TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
+| TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
 | CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |

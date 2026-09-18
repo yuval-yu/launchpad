@@ -21,14 +21,14 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `trader` | CurveBuy · CurveSell · Swap | 要看整笔交易里本币 Transfer 的净流量才能穿透路由 / 中继；Java 单看一条消息看不到整笔 tx |
 | `baseFee` `creatorTax` `snipeTax` | CurveBuy · CurveSell | 拆分规则是合约代码（`_splitBuyFees`、卖出税率）；反狙击税在另一条事件里 |
 | `quoteReserve` `tokenReserve` `priceQuote` | CurveBuy · CurveSell | 曲线定价公式和常数是合约的；Java 里不许有合约数学 |
-| `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` `totalSupply` | TokenLaunched | 前三个要按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）；总供应是合约常数 |
+| `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` | TokenLaunched | 按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）。这三个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取 |
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
 | `liquidityQuote` | CurveBuy · CurveSell · V4PoolGraduated · Swap | 该币此刻的流动性，以配对资产计。曲线阶段 = 曲线里的配对资产 × 2；毕业后 = 池两侧按池价折成配对资产之和（v4 不存余额，要从 L 与 √P 推）。Java 只乘配对资产价得 `liquidity_usd`，不存池子信息 |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
-| `tokenDecimals` `quoteSymbol` | TokenLaunched | 前者是合约常数；后者要 `symbol()` 读链 |
+| `quoteSymbol` | TokenLaunched | 要 `symbol()` 读链（可选） |
 
 ## topic 与投递
 
@@ -37,7 +37,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | topic | `launchpad.chain.events`，只有这一条 | 已有 |
 | key | **所有事件同一种键**，取 token 地址（小写）。同一个币的发币、成交、Transfer、Swap 必须落在同一个分区 | 已有（`cbcf16e` 起全部按 token） |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证 | 已有 |
-| 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；初始余额由 `TokenLaunched.derived.curveBalance` 给出。这样同一个币的第一条消息一定是 TokenLaunched | 缺（Transfer 整个事件还没有） |
+| 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；Java 收到 TokenLaunched 时按合约常量 `TOTAL_SUPPLY` 写曲线的余额行。这样同一个币的第一条消息一定是 TokenLaunched | 缺（Transfer 整个事件还没有） |
 | 投递 | 至少一次；Java 按 `eventId` 去重 | 已有 |
 | 确认 | 区块落后链头 ≥ N 块才发；`removed` 恒为 `false` | 未定（他们的 `removed` 语义是「可能为 true」，见[第 10 页](/rollout) Q3） |
 | 编码 | JSON，UTF-8；`args` / `derived` 里的 uint / int 一律**十进制字符串**；信封的 `blockNumber` `blockTimestamp` `chainId` `logIndex` 可以是 JSON number（安全整数范围内，Java 两种都收）；地址、哈希、bytes32 一律 **`0x` 小写**；bool 用 JSON 布尔；string 原样；struct 展开成对象 | 已有 |
@@ -89,7 +89,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，缺 derived
 
-Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。
+Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -118,9 +118,6 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `derived.quoteDecimals` | 【解析】【必须】配对资产精度，Envio 按 `quoteConfigHash` 查它自己维护的注册表配置得到。落币行，成交换算全靠它；Java 不存注册表 | **缺** |
 | `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 | **缺** |
 | `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 | **缺** |
-| `derived.totalSupply` | 【解析】【必须】总供应，合约常数 1e9 × 1e18。市值 = 价 × 它；持有占比分母；Java 不写合约常数 | **缺** |
-| `derived.tokenDecimals` | 【解析】【必须】发射币精度，合约常数 18。本币数量换整枚；Java 不写合约常数 | **缺** |
-| `derived.curveBalance` | 【解析】【必须】发币时铸给曲线的数量（= totalSupply）。替代不发的铸币 Transfer：Java 据此写曲线的余额行、`holder_count = 1` | **缺** |
 | `derived.quoteSymbol` | 【解析】【可选】配对资产代号，Envio 用 Effect 读一次 `symbol()`，原生币给 `ETH`。运营名单里没有这个资产时的展示兜底 | 缺（可选） |
 
 ```json
@@ -134,8 +131,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
                "storyFun": "https://story.fun/drama/1024" }
 },
 "derived": { "quoteDecimals": "18", "quoteSymbol": "ETH", "initialVirtualQuoteReserve": "1000000000000000000",
-             "graduationQuoteThreshold": "4000000000000000000",
-             "totalSupply": "1000000000000000000000000000", "tokenDecimals": "18", "curveBalance": "1000000000000000000000000000" }
+             "graduationQuoteThreshold": "4000000000000000000" }
 ```
 
 ### CurveBuy（BondingCurve）· 扫链已提供，缺 derived
