@@ -11,7 +11,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 | 模块 | 处置 | 说明 |
 |---|---|---|
 | `mq/consumer` · `service/chain` 分发 | **改** | 监听 `launchpad.chain.event`；`ChainEventParser` 校验新信封（`txFrom` / `derived`）；registry 只按 `eventName` 路由，`LaunchSource` 删除；批量消费 + 分区并行；死信 topic |
-| `service/chain/pons/*` | **删** | 旧 handler 六个、`PonsArgs`、平台归属判定、`PairedAssetResolver`、负向表 |
+| `service/chain/pons/*` | **删** | PONS（之前接的外部发射台）时代的 handler 六个、`PonsArgs`、平台归属判定、`PairedAssetResolver`、负向表 |
 | `service/chain/handler/*` | **新** | 十种事件的 handler，见下 |
 | `service/activity/*` · `controller/ActivityController` · `job/ActivityResolveJob` · `chain/decode/*` | **删** | 前端上报整条链路；`ActivityWriter` 的两来源合并退化成 insertIfAbsent |
 | `cmc/*` · `market/source/*` · `service/market/MarketRefreshService` / `Trigger` · `job/MarketSweepJob` / `CmcQuotaMonitor` | **删** | CMC 全部 |
@@ -113,7 +113,7 @@ if (inserted) {                                              // 累加型只走�
 - **CMC**：`cmc/*`、`market/source/*`、`config/{CmcConfig, MarketSourceConfig, MarketRefreshAsyncConfig}`、`service/market/{MarketRefreshService, MarketRefreshTrigger}`、`job/{MarketSweepJob, CmcQuotaMonitor}`、`price/CmcDexPriceSource`、yml `launchpad.cmc.*`、`CMC_API_KEY`
 - **RPC**：`chain/{ChainRpcClient, ChainRpcException, RpcContractProbe, ChainProperties}`、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
-- **旧扫链契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
+- **PONS 时代的契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
 - **表**：全部旧 `launchpad_*` 表 DROP，按[第 7 页](/tables)重建；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
 - **测试**：上述模块的单测与 `MarketRefreshLiveIT` / `ChainRpcClientIT`；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
 - `CLAUDE.md`「行情」「币价与 USD 折算」「活动：两个来源」「链上余额」「链上事件」五节重写

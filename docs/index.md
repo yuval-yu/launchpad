@@ -4,7 +4,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 
 # Envio 扫链、Kafka 投递、Java 落库
 
-发射台合约换成自研，链仍是 **Robinhood Chain**。**Envio 只做扫链工具**：订阅我们合约的事件、解码、补几个「看整笔交易才能定」的字段、发到 Kafka。 **launchpad 里的 Java** 监听消息、落审计、投影成事实表与派生表、算口径与 USD，**读接口全部查 MySQL**。 同时顶掉扫链（Let's Pod）、CMC、Blockscout、QuickNode 和前端上报；配对资产的美元价是唯一保留的外部数据。
+发射台合约换成自研，链仍是 **Robinhood Chain**。**Envio 只做扫链工具**：订阅我们合约的事件、解码、补几个「看整笔交易才能定」的字段、发到 Kafka。 **launchpad 里的 Java** 监听消息、落审计、投影成事实表与派生表、算口径与 USD，**读接口全部查 MySQL**。 之前接的是 PONS 这个外部发射台的合约，现在改扫我们自己的合约；随之顶掉外部扫链、CMC、Blockscout、QuickNode 和前端上报；配对资产的美元价是唯一保留的外部数据。
 
 ::: info
 **前提** · 自研发射台合约源码在 workspace 根 `src/`，事件已逐条对照（[第 9 页](/events)）：metadata 在发币事件里、退款不含在成交额里、成交后价格可由储备推出、配对资产链上注册。币的行情必须自己算，CMC 不认自研曲线合约。
