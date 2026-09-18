@@ -36,7 +36,8 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   received_at            BIGINT
   processed_at           BIGINT
                                                # uk (event_id, block_time)；(chain_id, block_number, log_index)；(chain_id, token_address, block_number, log_index)；(status, processed_at)
-                                               # 按 block_time 月分区（分区列必须在唯一键里；不能用 received_at，见「库与分区」）
+                                               # 主键 (id, block_time)；按 block_time 月分区。唯一键与主键里的 block_time 只为满足 MySQL 分区规则（分区表的每个唯一索引必须含分区列），
+                                               # 查询永远走 event_id 最左列，block_time 不参与任何查找；去重不受影响，同一 event_id 的 block_time 恒相同。不能用 received_at 分区，见「库与分区」
 ```
 
 ## 事实
@@ -59,7 +60,7 @@ launchpad_quote_asset                          # QuoteAssetConfigured 投影；�
 launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
-  log_index              INT                   # uk (chain_id, tx_hash, log_index, block_time)；按 block_time 月分区
+  log_index              INT                   # uk (chain_id, tx_hash, log_index, block_time)，主键 (id, block_time)；按 block_time 月分区，末尾的 block_time 只为满足分区规则
   token_address          CHAR(42)
   venue                  VARCHAR(8)            # CURVE / POOL
   side                   VARCHAR(4)            # BUY / SELL
@@ -256,12 +257,12 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 
 **不分表。** 热查询全部带 `token_address` 或 `trader_address` 走索引，千万行级别 MySQL 单表没有压力；分表只会把「按币查」「按人查」两种访问路径拆到两个维度上，得不偿失。
 
-**按月分区，两张表。**
+**按月分区，两张表（用户 09-18 定，方案 A：MySQL 原生分区，不引入 Sharding-JDBC）。** 分区是一张逻辑表在 InnoDB 内部切片，对 mybatis-flex 透明；分表是应用层拆多张物理表，要中间件路由、跨表去重与合并，我们不需要。dev / test 是自建 MySQL 8.0，prod 是 AWS 托管（RDS 或 Aurora 待确认），三者都支持原生分区。
 
 | 表 | 分区键 | 保留 | 唯一键要求 |
 |---|---|---|---|
-| `launchpad_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求唯一键包含分区列：`uk (event_id, block_time)`。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
-| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (chain_id, tx_hash, log_index, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
+| `launchpad_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求分区表的每个唯一索引（含主键）包含分区列：`uk (event_id, block_time)`、`pk (id, block_time)`。`block_time` 排在末尾，不参与查找，纯为满足规则。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
+| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (chain_id, tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
 
 其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
 
