@@ -56,7 +56,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
     "address": "0xc721…3a1a",
     "signature": "CurveBuy(address,address,uint128,uint128,uint96,uint128)",
     "args": { "…": "ABI 具名参数，原样" },
-    "derived": { "…": "Envio 解析的字段，各事件不同" }
+    "token": { "token": "0xb0f0…d42e" },
+    "derived": { "…": "这一条事件算出来的字段，各事件不同" }
   }
 }
 ```
@@ -76,7 +77,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.address` | 【必须】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 |
 | `payload.signature` | 【可选】规范签名，如 `CurveBuy(address,address,uint128,uint128,uint96,uint128)`。审计用；没有同名重载，不靠它路由 |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 |
-| `payload.derived` | 【按事件】Envio 解析的字段，对象。见各事件 |
+| `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）；扫链同学 `cbcf16e` 起曲线事件已带。TokenLaunched 的精度 / 阈值 / 总供应这类「币级」字段也可以放这里 |
+| `payload.derived` | 【按事件】这一条事件算出来的字段，对象：trader、费用拆分、成交后价格与储备、流动性、余额。见各事件 |
 
 ## 九种事件
 
@@ -143,7 +145,7 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
 | `args.netQuoteIn` | 【原始】【必须】进入定价储备的部分。均价 `avg_price_quote`，持仓成本用 |
 | `args.tokensOut` | 【原始】【必须】用户拿到的本币。成交数量；持仓数量 |
 | `args.fee` | 【原始】【必须】费用总额。存档；核对拆分之和 |
-| `derived.token` | 【解析】【可选】这条曲线对应的发射币。Java 能用 `payload.address`（curve）在 `launchpad_token.curve_address` 反查，查不到进 WAITING_TOKEN 等发币消息；给了省一次查询 |
+| `token.token` | 【解析】【必须】这条曲线对应的发射币（`cbcf16e` 起已给）。Java 认币先读它，没有再用 `payload.address`（curve）反查 `curve_address` |
 | `derived.trader` | 【解析】【必须】真实交易者。名义地址不是合约就是它；是合约按整笔收据穿透；穿透不出退回名义地址。Activity、持仓、持有者归属都按它，规则见[第 3 页](/envio) |
 | `derived.baseFee` | 【解析】【必须】基础手续费，按合约 `_splitBuyFees` 从 `fee` 拆出。详情页费用展示 |
 | `derived.creatorTax` | 【解析】【必须】创作者税。同上 |
@@ -160,7 +162,8 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
   "args": { "buyer": "0x096a…4fd4", "recipient": "0x2bf5…7675",
             "grossQuoteIn": "100000000000000", "netQuoteIn": "99000000000000",
             "tokensOut": "714285714285714285714285715", "fee": "1000000000000" },
-  "derived": { "token": "0x3d7e…4cdd", "trader": "0x2bf5…7675",
+  "token": { "token": "0x3d7e…4cdd" },
+  "derived": { "trader": "0x2bf5…7675",
                "baseFee": "666666666667", "creatorTax": "333333333333", "snipeTax": "0",
                "quoteReserve": "99000000000000", "tokenReserve": "285714285714285714285714285",
                "priceQuote": "0.000000000000140", "liquidityQuote": "198000000000000" }
@@ -179,7 +182,7 @@ Java 写 `launchpad_trade`（CURVE / SELL），持仓结一笔已实现盈亏，
 | `args.grossQuoteOut` | 【原始】【必须】离开定价储备的配对资产，扣费前。均价 |
 | `args.netQuoteOut` | 【原始】【必须】用户实收。**成交额**、USD、盈亏 |
 | `args.fee` | 【原始】【必须】费用总额。存档 |
-| `derived.token` | 【解析】【可选】同 CurveBuy |
+| `token.token` | 【解析】【必须】同 CurveBuy |
 | `derived.trader` | 【解析】【必须】真实交易者，名义地址是 `seller`，是合约按整笔收据净流出最大的地址。同 CurveBuy |
 | `derived.baseFee` | 【解析】【必须】基础手续费 = `fee − creatorTax`。费用展示 |
 | `derived.creatorTax` | 【解析】【必须】创作者税 = `grossQuoteOut × creatorTaxBps ÷ 10000` 向下取整。费用展示 |
@@ -252,7 +255,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 |
 | `args.tick` | 【原始】【可选】存档 |
 | `args.fee` | 【原始】【可选】池费率。存档 |
-| `derived.token` | 【解析】【可选】这个池对应的发射币。Java 能用 `args.id` 在 `launchpad_token.pool_id` 反查（PoolRegistered / V4PoolGraduated 先到）；给了省一次查询 |
+| `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 认币先读它，没有再用 `args.id` 反查 `pool_id` |
 | `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 |
 | `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity |
 | `derived.tokenAmount` | 【解析】【必须】本币数量，绝对值，最小单位。成交数量 |
@@ -269,7 +272,8 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
   "signature": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)",
   "args": { "id": "0x1dcf…a049", "sender": "0xrouter…", "amount0": "-2500000000000000",
             "amount1": "18000000000000000000000", "sqrtPriceX96": "…", "liquidity": "…", "tick": "-201234", "fee": "3000" },
-  "derived": { "token": "0x3d7e…4cdd", "side": "BUY", "trader": "0x944…",
+  "token": { "token": "0x3d7e…4cdd" },
+  "derived": { "side": "BUY", "trader": "0x944…",
                "tokenAmount": "18000000000000000000000", "quoteAmount": "2500000000000000",
                "priceQuote": "0.000000000000138", "liquidityQuote": "9000000000000000000", "hookFee": "24999843", "creatorTax": "0",
                "feeCurrency": "0x0000000000000000000000000000000000000000" }
