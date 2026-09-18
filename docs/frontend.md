@@ -36,4 +36,4 @@ title: 8 · 每个现有接口的字段落在哪
 | D1 | 1 天 / 15 分钟 | 分钟桶，实际只有成交的分钟才有行 |
 | ALL | 自发射起 | ≤ 30 天分钟桶合并；更长 `launchpad_kline_day` 合并成 1w / 1M |
 
-「不超过 60 笔逐笔画」先查 61 条；`marketCapUsd = close_usd × total_supply`；LTTB 降采样保留。
+「不超过 60 笔逐笔画」先查 61 条；`marketCapUsd = close_usd × total_supply`；LTTB 降采样保留。**桶表只有有成交的周期才有行**，没成交的那一格在响应里补（延续上一根收盘价或留空由展示定），不落库。

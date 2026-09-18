@@ -69,6 +69,8 @@ if (inserted) {                                               // 累加型只走
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 
+**K 线桶只在有成交时写。** 桶由成交 handler 在首插成功时 upsert：该分钟 / 该日第一笔建行（open = 这笔成交后价），之后的成交只更新 high / low / close / 量 / 笔数。**没有成交的分钟不存行，没有定时任务补空桶**。读接口画图时遇到空档怎么处理（延续上一根收盘价，还是断开）是展示口径，在响应里做，不落库。
+
 **持仓成本。** 移动平均：买入 `qty += tokenOut`、`cost_quote += quoteIn`、`cost_usd += amountUsd`；卖出先算均价、释放 `min(tokenIn, qty) × 均价`，超出部分零成本，`pnl_*` 写回这笔 trade 与 position 的累计；恰好归零时成本清零。转入转出只改余额不改持仓。
 
 ## 定时线

@@ -117,7 +117,7 @@ launchpad_position                             # 一个（地址, 币）一行�
   first_trade_at / last_trade_at BIGINT
                                                # (chain_id, trader_address, last_trade_at DESC)
 
-launchpad_kline_minute                         # 只有有成交的分钟才有行
+launchpad_kline_minute                         # 只有有成交的分钟才有行（用户 09-18 定）：桶由成交 handler upsert，没有任何定时任务补空桶
   chain_id               BIGINT
   token_address          CHAR(42)
   period_start           BIGINT                # 整分钟；uk (chain_id, token_address, period_start)
@@ -130,7 +130,7 @@ launchpad_kline_minute                         # 只有有成交的分钟才有�
   trade_count            INT
                                                # uk；(chain_id, period_start)
 
-launchpad_kline_day                            # 字段同分钟桶，period_start 取整 UTC 日；ALL 档超过 30 天读它
+launchpad_kline_day                            # 字段同分钟桶，period_start 取整 UTC 日；同样只有有成交的日才有行；ALL 档超过 30 天读它
 
 launchpad_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
   chain_id               BIGINT
