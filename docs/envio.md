@@ -4,7 +4,7 @@ title: 3 · Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
 # Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
-一句话：**我们写一份 `config.yaml`、一份最小的 `schema.graphql` 和一组 TypeScript handler，indexer 从 HyperSync / RPC 拉区块、跑 handler、把每条事件变成一条 Kafka 消息。** Postgres 只存 Envio 自己的同步状态和一份最小内部状态，没有 Hasura，Java 不读它。
+一句话：**我们写一份 `config.yaml`、一份最小的 `schema.graphql` 和一组 TypeScript handler，indexer 从 QuickNode RPC 拉区块、跑 handler、把每条事件变成一条 Kafka 消息。** Postgres 只存 Envio 自己的同步状态和一份最小内部状态，没有 Hasura，Java 不读它。
 
 同事已起的仓库 `amazing-socrates/envio`（测试网、纯 RPC、三个 handler、`publishKafka` effect 占位）就是这个形状的起点，往下填即可。
 
@@ -12,26 +12,29 @@ title: 3 · Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
 | 组件 | 对我们意味着 |
 |---|---|
-| **HyperSync** | 主网 4663 在支持列表里，按合约地址和事件签名直接取日志；测试网 46630 不在，走 RPC |
+| **QuickNode RPC** | 主网 4663 与测试网 46630 都走它（用户 09-18 定，不用 HyperSync）：`sync` 端点批量拉历史，`wss` 端点跟链头。RPC 的 `eth_getLogs` 按合约地址与 topic 过滤，动态注册的 curve / token 多了以后每批请求的地址列表会变长，Envio 自动分批 |
 | **HyperIndex** | 声明链、合约、事件；handler 用 TypeScript 写；自动处理动态合约、批量读写、重组回滚 |
 | **Postgres** | Envio 自用：同步游标、`raw_events`、最小内部状态。**不对外** |
 
 ## config.yaml
 
 ```yaml
-chains:
+chains:                                 # 主网 / 测试网各一份 config，按环境部署；两条链都是纯 QuickNode RPC，不用 HyperSync
   - id: 4663                          # Robinhood 主网
     start_block: <工厂部署区块>
-    hypersync: https://4663.hypersync.xyz
     rpc:
-      - url: <主网 RPC>
-        for: fallback
-  - id: 46630                         # 测试网：纯 RPC
+      - url: <QuickNode 主网 https>
+        for: sync                       # 批量拉历史
+      - url: <QuickNode 主网 https>
+        ws: <QuickNode 主网 wss>
+        for: realtime                   # 跟链头
+  - id: 46630                         # 测试网
     start_block: <工厂部署区块>
     rpc:
-      - url: <测试网 RPC>
+      - url: <QuickNode 测试网 https>
         for: sync
-      - url: <测试网 wss>
+      - url: <QuickNode 测试网 https>
+        ws: <QuickNode 测试网 wss>
         for: realtime
 
 rollback_on_reorg: true

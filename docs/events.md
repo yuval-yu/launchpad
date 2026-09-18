@@ -125,5 +125,5 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 - **各合约部署地址与区块号**：主网与测试网各一份；PoolManager 是 Uniswap v4 核心合约，地址也要
 - **路由地址**：TradeRouter 与 Universal Router，Transfer 回填交易者时要排除；前端是否还有别的下单路径
 - **`@index` 与 `getWhere` 的实际能力**：复合索引支不支持、同一区块内刚写的实体能否被 `getWhere` 查到。后者还决定 SnipeTaxCharged → CurveBuy、Swap → HookFeeCollected 这类同 tx 配对能不能靠实体传递
-- **HyperSync 免费档的限制**：主网走它，配额够不够全量回填加长期追块；测试网走 QuickNode RPC 的速度
+- **QuickNode 的限流与回填速度**：主网与测试网都纯 RPC，`eth_getLogs` 按地址过滤，动态注册的合约越多每批请求越重；全量回填一次要多久、追块的请求频率占不占额度，W1 实测
 - **合约升级怎么通知**：clone 实现可换（`ImplementationUpdated`），事件签名一变 handler 收不到，Envio 不报错。可以顺手订阅 Deployer 的 ImplementationUpdated 当告警源

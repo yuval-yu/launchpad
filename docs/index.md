@@ -57,7 +57,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <line x1="210" y1="190" x2="248" y2="190" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 
 <rect x="250" y="130" width="220" height="230" rx="4" style="fill:var(--vp-c-bg-soft);stroke:var(--vp-c-divider)"/>
-<text x="262" y="148" style="fill:var(--vp-c-text-3);font-size:10.5px;letter-spacing:.06em">HyperSync 主网 · RPC 测试网</text>
+<text x="262" y="148" style="fill:var(--vp-c-text-3);font-size:10.5px;letter-spacing:.06em">QuickNode RPC · 主网与测试网</text>
 <rect x="262" y="160" width="196" height="54" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-brand-1)"/>
 <text x="272" y="179" fill="currentColor" style="font-weight:600">handler</text>
 <text x="272" y="195" style="fill:var(--vp-c-text-2);font-size:11px">解码 · contractRegister</text>
@@ -152,14 +152,13 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 - **所有数据在一个库里。** 列表、详情、K 线、成交、持有者、资产页都是普通 SQL，没有跨库 join、没有第二套查询语言
 - **口径全在 Java。** 改任何口径只重算 MySQL，Envio 不重跑；Envio 只在合约事件签名变时才改
 - **审计与重放留在自己手里。** 审计表就是重放源：按 id、按币、按事件类型、全量重建四种入口
-- **外部依赖只剩价源。** CMC、Blockscout、QuickNode 全部下线
+- **Java 的外部依赖只剩价源。** CMC、Blockscout 下线；QuickNode 只有 Envio 用，Java 不碰
 
 ## 保留的外部依赖
 
 | 依赖 | 用途 | 挂了会怎样 |
 |---|---|---|
-| **HyperSync** | Envio 主网区块数据源 | 超过 20 秒没新块自动切到 RPC 兜底 |
-| **RPC**（QuickNode 或链方公共节点） | Envio 测试网数据源、主网兜底 | 测试网停更；Java 不再调 RPC |
+| **QuickNode RPC** | Envio 的区块数据源，主网与测试网都是（不用 HyperSync） | Envio 停更，消息停止；恢复后从断点续。Java 不调 RPC |
 | **配对资产价源**（[第 6 页](/pricing)） | ETH 系、稳定币、股票代币的美元价 | 对应那类配对的币 USD 字段为 null |
 
 Envio 停了：消息停止，列表与详情停在最后一条消息的状态，前端仍可用；恢复后从断点继续，不丢事件。
