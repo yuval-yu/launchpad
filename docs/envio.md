@@ -102,10 +102,10 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`，**不发消息**（Java 不需要；TokenLaunched 的 derived 里带精度 / 阈值 / 初始储备）
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项；发消息。总供应 / 精度 / 铸币量是 `LaunchDefaults` 常数，Java 自己有，不发
-- **CurveBuy / CurveSell**：更新两个储备；`derived` = quoteReserve、tokenReserve、priceQuote、liquidityQuote；名义地址（买 `recipient` / 卖 `seller`）是合约时再补 trader（见下一节），不是合约不用给；发消息
+- **CurveBuy / CurveSell**：更新两个储备；`derived` = quoteReserve、priceQuote；名义地址（买 `recipient` / 卖 `seller`）是合约时再补 trader（见下一节），不是合约不用给；发消息。两个储备（`trackedNetQuote` / `trackedTokens`）按事件累加在内部 `Token` 上，事件里没有；W1 用合约 `getPricingReserves()` 核一次累加结果，之后不再调链
 - **CurveCompleted / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息（曲线关闭订曲线的 CurveCompleted，工厂的 LaunchSwept 不订）
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = side、**trader（见下一节，必须）**、tokenAmount、quoteAmount、priceQuote、liquidityQuote；发消息
-- **流动性 `derived.liquidityQuote`**（CurveBuy / CurveSell / V4PoolGraduated / Swap 都给，以配对资产计）：曲线阶段 = `trackedNetQuote × 2`；毕业后 = 池两侧按池价折成配对资产之和，全区间仓位下两侧各 `L × (√P − √P_lower)` 与 `L × (√P_upper − √P) ÷ (√P × √P_upper)`，按 currency0 / 1 方向与精度整理。Java 只乘配对资产价，不存池子信息；W1 用真实池对 `balanceOf(PoolManager)` 核一次
+- **流动性 `derived.liquidityQuote`**（只有 V4PoolGraduated / Swap 给，以配对资产计；曲线阶段 Java 自己用 `quoteReserve × 2`）：池两侧按池价折成配对资产之和，全区间仓位下两侧各 `L × (√P − √P_lower)` 与 `L × (√P_upper − √P) ÷ (√P × √P_upper)`，按 currency0 / 1 方向与精度整理。Java 只乘配对资产价，不存池子信息；W1 用真实池对 `balanceOf(PoolManager)` 核一次
 - **Transfer**：`from` 为零地址（铸币）只更新 `Balance`，**不发消息**（Java 收到 TokenLaunched 时按常量 TOTAL_SUPPLY 写曲线余额）；其余更新 `Balance(token, from)` 与 `Balance(token, to)`，`to` 为零地址减 `Token.totalSupply`，余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、fromKind、toKind、totalSupply、positiveBalanceCount（余额都是**变动后的绝对值**；kind 按 config 里的固定地址 + 该币的 curve 判）；发消息。Java 拿到就 set，不累加
 - **Heartbeat**：`onBlock` 每 N 块（约一分钟）发一条 headBlock / processedBlock / processedBlockTime；Java 用来判断 Envio 是否活着
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`

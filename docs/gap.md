@@ -58,9 +58,8 @@ title: 11 · 与扫链现状的差距
 |---|---|---|
 | ~~`derived.token`~~ | — | 已由 `payload.token.token` 给出 |
 | `derived.trader` | 可选 | 名义地址不是合约不用给；是合约则按整笔收据本币 Transfer 净流量穿透（[第 3 页](/envio)） |
-| `derived.quoteReserve` `tokenReserve` | ✓ | 成交后 `trackedNetQuote` / `trackedTokens` |
+| `derived.quoteReserve` | ✓ | 成交后 `trackedNetQuote`，按事件累加 |
 | `derived.priceQuote` | ✓ | 常数乘积定价 |
-| `derived.liquidityQuote` | ✓ | `trackedNetQuote × 2` |
 
 ### Swap（整条缺）
 

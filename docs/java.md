@@ -48,7 +48,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 Position pos = positions.lock(chainId, trader, token);        // SELECT … FOR UPDATE，没有就是空持仓
 Trade trade = Trade.from(msg, priceAt(...), pos);             // 卖出行的 pnl_* 在这里用「卖出前的持仓」算好，不回填
 boolean inserted = trades.insertIfAbsent(trade);              // 唯一键 (tx_hash, log_index, block_time)；重复 → false
-tokens.setReservesAndPrice(token, quoteReserve, tokenReserve, priceQuote);   // set 型，幂等
+tokens.setReserveAndPrice(token, quoteReserve, priceQuote);                  // set 型，幂等；曲线阶段 liquidity_quote = quoteReserve × 2
 tokens.advanceLastTradeAt(token, blockTime);
 if (inserted) {                                               // 累加型只走一次
     positions.apply(pos, trade);                              // 买入加成本，卖出扣成本、累加已实现盈亏
@@ -62,7 +62,7 @@ if (inserted) {                                               // 累加型只走
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| CurveBuy / CurveSell | `launchpad_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
@@ -81,7 +81,7 @@ if (inserted) {                                               // 累加型只走
 
 Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在更晚的事件之后才来。去重靠审计表 `event_id` 唯一键，重复的拒掉、漏的补上；但派生表要能吃下乱序，四条规则：
 
-1. **set 型状态带水位线。** 币行的 `price_quote` / `liquidity_quote` / `quote_reserve` / `token_reserve` / `total_supply` / `holder_count`，余额表的 `balance`，都只在事件的 `(block_number, log_index)` **大于**行上记录的水位线时才写，并推进水位线；更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
+1. **set 型状态带水位线。** 币行的 `price_quote` / `liquidity_quote` / `quote_reserve` / `total_supply` / `holder_count`，余额表的 `balance`，都只在事件的 `(block_number, log_index)` **大于**行上记录的水位线时才写，并推进水位线；更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
 3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
 4. **「币还没到」不设重试上限。** 成交、Transfer 先于 TokenLaunched 到达时进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功后立即按币重投它们。
