@@ -82,7 +82,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | token, trader, snipeTax（同 tx SnipeTaxCharged）, quoteReserve, tokenReserve, priceQuote | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
 | **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上（无 snipeTax） | 同上，position 结一笔已实现盈亏 |
 | **LaunchFactory.LaunchSwept** | token, quoteAmount, tokenAmount | — | 币行 `curve_closed_at`，status = GRADUATED。与曲线的 `CurveCompleted` 同 tx，用这条因为带 token |
-| **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` / `pool_quote_token` |
+| **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` / `pool_quote_asset` |
 | **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价） | 币行 `pool_created_at` / `pool_position_id` / `pool_liquidity` / `price_quote` |
 | **LaunchFactory.LaunchGraduationRescued** | token, recipient, quoteAmount, tokenAmount | — | 币行 `rescued_at`，status = RESCUED。**产品要定这种币怎么展示** |
 | **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | token, poolId, side, trader, tokenAmount, quoteAmount, priceQuote, hookFee / creatorTax / feeCurrency（同 tx HookFeeCollected） | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
