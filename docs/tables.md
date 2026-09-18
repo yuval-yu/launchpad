@@ -27,7 +27,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   contract_address       CHAR(42)              # payload.address
   token_address          CHAR(42)              # 该事件属于哪个币（derived.token / args.token / Transfer 的 address）；QuoteAssetConfigured 为 NULL
   raw_message            LONGTEXT              # 原文；只保留最近 3 个月的分区，更早 DROP PARTITION
-  status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED
+  status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED / WAITING_TOKEN（币还没到，不计次数，TokenLaunched 到了按币重投）
   attempts               INT
   error                  TEXT
   kafka_partition        INT
@@ -94,7 +94,8 @@ launchpad_balance                              # 一个（币, 地址）一行�
   holder_address         CHAR(42)              # uk (chain_id, token_address, holder_address)
   holder_kind            VARCHAR(16)           # derived.fromKind / toKind：USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT；持有者榜标行、剔协议合约、资产页只列 USER
   balance                DECIMAL(65,0)
-  block_number           BIGINT                # 只接受更新的区块（乱序保护）
+  block_number           BIGINT                # 水位线：只接受 (block_number, log_index) 更新的 Transfer（乱序保护）
+  log_index              INT
   updated_at             BIGINT
                                                # (chain_id, token_address, balance DESC)；(chain_id, holder_address)
 ```
@@ -116,6 +117,7 @@ launchpad_position                             # 一个（地址, 币）一行�
   realized_pnl_usd       DECIMAL(20,8)
   buy_count / sell_count INT
   first_trade_at / last_trade_at BIGINT
+  applied_block / applied_log BIGINT / INT     # 最后一笔按顺序应用的成交；更早的成交迟到 → 重算这一对
                                                # (chain_id, trader_address, last_trade_at DESC)
 
 launchpad_kline_minute                         # 只有有成交的分钟才有行（用户 09-18 定）：桶由成交 handler upsert，没有任何定时任务补空桶
@@ -123,6 +125,8 @@ launchpad_kline_minute                         # 只有有成交的分钟才有�
   token_address          CHAR(42)
   period_start           BIGINT                # 整分钟；uk (chain_id, token_address, period_start)
   open / high / low / close DECIMAL(36,18)     # 配对资产计，取成交后价 price_quote
+  open_block / open_log  BIGINT / INT          # open 来自哪笔成交；迟到的更早一笔替换 open（乱序保护）
+  close_block / close_log BIGINT / INT         # close 来自哪笔成交；更晚的才替换 close
   open_usd / high_usd / low_usd / close_usd DECIMAL(20,8)
   volume_quote_curve     DECIMAL(65,0)         # 曲线成交量
   volume_quote_pool      DECIMAL(65,0)         # 池内成交量；分开存，「含不含 DEX」读时定
@@ -185,6 +189,8 @@ launchpad_token                                # 一个发射币一行，uk (cha
   liquidity_quote        DECIMAL(65,0)         # derived.liquidityQuote：流动性，以配对资产计；曲线与池内成交都推进
   token_reserve          DECIMAL(65,0)
   price_quote            DECIMAL(36,18)        # 最近一笔成交后价，配对资产计
+  state_block_number     BIGINT                # set 型链上列的水位线：只接受 (block, log) 更新的事件（乱序保护）
+  state_log_index        INT
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
   cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)

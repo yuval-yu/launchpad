@@ -53,7 +53,7 @@ if (inserted) {                                               // 累加型只走
 }
 ```
 
-**`launchpad_trade` 只插入、不更新。** 交易者、USD、盈亏全部在插入前定好：交易者来自消息，USD 按区块时间取价一次固化，盈亏用插入前锁住的持仓算。插入后没有任何路径改它：重复投递 `insertIfAbsent` 返回 false 不碰行；全量重建是 truncate 再插；USD 缺价不事后补。
+**`launchpad_trade` 只插入、不更新，一个例外。** 交易者、USD、盈亏全部在插入前定好：交易者来自消息，USD 按区块时间取价一次固化，盈亏用插入前锁住的持仓算。重复投递 `insertIfAbsent` 返回 false 不碰行；全量重建是 truncate 再插；USD 缺价不事后补。唯一的例外是**迟到成交触发的持仓重算**会重写同一对 (trader, token) 里卖出行的五个 `pnl_*` 列（见「乱序与补发」）。
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
@@ -73,6 +73,21 @@ if (inserted) {                                               // 累加型只走
 **K 线桶只在有成交时写。** 桶由成交 handler 在首插成功时 upsert：该分钟 / 该日第一笔建行（open = 这笔成交后价），之后的成交只更新 high / low / close / 量 / 笔数。**没有成交的分钟不存行，没有定时任务补空桶**。读接口画图时遇到空档怎么处理（延续上一根收盘价，还是断开）是展示口径，在响应里做，不落库。
 
 **持仓成本。** 移动平均：买入 `qty += tokenOut`、`cost_quote += quoteIn`、`cost_usd += amountUsd`；卖出先算均价、释放 `min(tokenIn, qty) × 均价`，超出部分零成本，`pnl_*` 写回这笔 trade 与 position 的累计；恰好归零时成本清零。转入转出只改余额不改持仓。
+
+## 乱序与补发：唯一性靠 event_id，正确性靠水位线、锚点、重算
+
+Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在更晚的事件之后才来。去重靠审计表 `event_id` 唯一键，重复的拒掉、漏的补上；但派生表要能吃下乱序，四条规则：
+
+1. **set 型状态带水位线。** 币行的 `price_quote` / `liquidity_quote` / `quote_reserve` / `token_reserve` / `total_supply` / `holder_count`，余额表的 `balance`，都只在事件的 `(block_number, log_index)` **大于**行上记录的水位线时才写，并推进水位线；更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
+2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
+3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
+4. **「币还没到」不设重试上限。** 成交、Transfer 先于 TokenLaunched 到达时进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功后立即按币重投它们。
+
+不需要处理的：`launchpad_trade` insert-only；`launchpad_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
+
+::: tip 一句话验收标准
+把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十一张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
+:::
 
 ## 定时线
 
