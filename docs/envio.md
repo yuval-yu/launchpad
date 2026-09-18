@@ -71,7 +71,7 @@ type Token @entity {                # 一个发射币一行
   poolId: String @index           # PoolRegistered 后才有；Swap 按它反查
   poolLiquidity: BigInt!          # V4PoolGraduated 初值；算池侧储备用
   quoteAsset: String!             # 配对资产地址，零地址 = 原生 ETH
-  quoteDecimals: Int!             # 来自 QuoteAssetConfig
+  quoteDecimals: Int!             # 来自 QuoteAssetConfig；Envio 自己算流动性 / 价格时用，不发给 Java（Java 从运营配置取）
   initialVirtualQuoteReserve: BigInt!
   graduationQuoteThreshold: BigInt!
   trackedNetQuote: BigInt!        # 买入 += netQuoteIn，卖出 -= grossQuoteOut；曲线关闭后冻结

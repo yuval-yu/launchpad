@@ -157,7 +157,7 @@ launchpad_token                                # 一个发射币一行；列表�
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
   quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；按地址从运营名单（admin 的 quoteTokens 配置）取，名单里没有为 NULL
-  quote_asset_decimals   TINYINT               # 配对资产的精度（ETH 18、USDG 6），所有配对资产金额换整枚都靠它；来自消息，Java 不查链
+  quote_asset_decimals   TINYINT               # 配对资产的精度（ETH 18、USDG 6），所有配对资产金额换整枚都靠它；按地址从运营名单（admin Redis）取，名单里没有为 NULL，整枚数 / USD 留空并告警
   quote_config_hash      CHAR(66)
   launch_config_id       INT
   curve_fee_bps          SMALLINT UNSIGNED

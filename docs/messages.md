@@ -20,7 +20,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 |---|---|---|
 | `trader` | Swap（必须）· CurveBuy · CurveSell（可选） | 池内 Swap 的 `sender` 是路由，事件里没有用户地址，只有看整笔交易里本币 Transfer 的净流量才能定；曲线事件缺省取 `recipient` / `seller`，只有名义地址是合约（0x Settler 这类）时才需要 Envio 穿透 |
 | `priceQuote` `quoteReserve` | CurveBuy · CurveSell | 事件里只有这笔的金额，成交后的状态不在事件里；边际价要套曲线定价公式（常数在合约里），净募集是 Envio 为算价格本来就维护的累计值，给绝对值比 Java 自己累加健壮（漏一条消息不会永远错下去） |
-| `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` | TokenLaunched | 按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）。这三个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取 |
+| `graduationQuoteThreshold` `initialVirtualQuoteReserve` | TokenLaunched | 按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标由运营在 admin Redis 里维护，不走消息 |
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `liquidityQuote` | V4PoolGraduated · Swap | 毕业后池的流动性，以配对资产计 = 池两侧按池价折成配对资产之和；v4 不存余额，要从 L 与 √P 推，是 Uniswap 数学。曲线阶段不需要：Java 用 `quoteReserve × 2` |
@@ -86,7 +86,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，缺 derived
 
-Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的代号、图标由运营配置（admin 的 `quoteTokens` 名单）按地址补，不走消息。
+Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；名单里没有这个配对资产时币照收，金额只存最小单位原值，整枚数与 USD 留空并告警，运营补配置后由线二回填。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -112,7 +112,6 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `args.socials.discord` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.socials.farcaster` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.launchSalt` | 【原始】【可选】CREATE2 salt。存档 | 已有 |
-| `derived.quoteDecimals` | 【解析】【必须】配对资产精度，Envio 按 `quoteConfigHash` 查它自己维护的注册表配置得到。落币行，成交换算全靠它；Java 不存注册表 | **缺** |
 | `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 | **缺** |
 | `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 | **缺** |
 
@@ -126,7 +125,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
   "socials": { "website": "", "twitter": "", "telegram": "", "discord": "", "farcaster": "",
                "storyFun": "https://story.fun/drama/1024" }
 },
-"derived": { "quoteDecimals": "18", "initialVirtualQuoteReserve": "1000000000000000000",
+"derived": { "initialVirtualQuoteReserve": "1000000000000000000",
              "graduationQuoteThreshold": "4000000000000000000" }
 ```
 

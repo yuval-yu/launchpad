@@ -48,7 +48,6 @@ title: 11 · 与扫链现状的差距
 
 | 字段 | 必须 | Envio 怎么得到 |
 |---|---|---|
-| `derived.quoteDecimals` | ✓ | 按 `quoteConfigHash` 查 QuoteAssetConfig |
 | `derived.graduationQuoteThreshold` | ✓ | 同上 |
 | `derived.initialVirtualQuoteReserve` | ✓ | 同上 |
 
