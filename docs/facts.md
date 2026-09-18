@@ -63,7 +63,7 @@ Java 存三个时间戳 `curve_closed_at` / `pool_created_at` / `rescued_at`，`
 |---|---|
 | 任何 USD | Java：成交 handler 固化、线二 / 线三现价 |
 | 状态名（GRADUATED 等） | Java 线二由三个时间戳推 |
-| 剔除合约后的持有人数、发行者持仓占比 | Java 由余额表算（正余额地址数本身由 Envio 给） |
+| 剔除协议合约后的持有人数、发行者持仓占比 | Java 由余额表按 `holder_kind` 算；地址是什么 kind 由 Envio 给 |
 | 滚动 24h | Java 线三 |
 | 叙事绑定、OG、发行者是哪个平台用户 | Java 线二 |
 | 持仓成本与盈亏 | Java 成交 handler 维护 `launchpad_position` |

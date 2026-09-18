@@ -98,13 +98,14 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 每个 handler 三步：解码 → 补 `derived` → 调 `publish` effect。不做任何口径。
 
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`；发消息
-- **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply`（`LaunchDefaults.TOTAL_SUPPLY`）；发消息
+- **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply` / `tokenDecimals`（`LaunchDefaults` 常数）、`curveBalance`（铸给曲线的量）、`quoteSymbol`（Effect 读 `symbol()`，原生币 `ETH`）；发消息
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
 - **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
 - **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
 - **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
-- **Transfer**：更新 `Balance(token, from)` 与 `Balance(token, to)`；`to` 为零地址减 `Token.totalSupply`；余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、totalSupply、positiveBalanceCount（都是**变动后的绝对值**）；发消息。Java 拿到就 set，不累加
+- **Transfer**：`from` 为零地址（铸币）只更新 `Balance`，**不发消息**（初始余额走 TokenLaunched.derived.curveBalance）；其余更新 `Balance(token, from)` 与 `Balance(token, to)`，`to` 为零地址减 `Token.totalSupply`，余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、fromKind、toKind、totalSupply、positiveBalanceCount（余额都是**变动后的绝对值**；kind 按 config 里的固定地址 + 该币的 curve 判）；发消息。Java 拿到就 set，不累加
+- **Heartbeat**：`onBlock` 每 N 块（约一分钟）发一条 headBlock / processedBlock / processedBlockTime；Java 用来判断 Envio 是否活着
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`
 
 ## 交易者归属：在 Envio 里做，用整笔收据算

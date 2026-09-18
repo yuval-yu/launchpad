@@ -92,6 +92,7 @@ launchpad_balance                              # 一个（币, 地址）一行�
   chain_id               BIGINT
   token_address          CHAR(42)
   holder_address         CHAR(42)              # uk (chain_id, token_address, holder_address)
+  holder_kind            VARCHAR(16)           # derived.fromKind / toKind：USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT；持有者榜标行、剔协议合约、资产页只列 USER
   balance                DECIMAL(65,0)
   block_number           BIGINT                # 只接受更新的区块（乱序保护）
   updated_at             BIGINT
@@ -153,7 +154,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   creator_address        CHAR(42)              # TokenLaunched.creator；对外仍叫 deployerAddress
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
-  quote_asset_symbol     VARCHAR(16)           # 运营名单按地址补；名单外为 NULL，不影响收录
+  quote_asset_symbol     VARCHAR(16)           # 运营名单按地址补；名单外用 derived.quoteSymbol
   quote_asset_decimals   TINYINT               # derived.quoteDecimals，链上权威
   quote_config_hash      CHAR(66)
   launch_config_id       INT
@@ -165,7 +166,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   initial_virtual_quote_reserve DECIMAL(65,0)
   graduation_threshold   DECIMAL(65,0)
   total_supply           DECIMAL(65,0)         # derived.totalSupply，Transfer 消息 set
-  token_decimals         TINYINT               # 恒 18
+  token_decimals         TINYINT               # derived.tokenDecimals
   name                   VARCHAR(128)
   symbol                 VARCHAR(32)
   description            VARCHAR(512)          # 对外 tagline

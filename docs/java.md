@@ -58,14 +58,15 @@ if (inserted) {                                               // 累加型只走
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
 | QuoteAssetConfigured | `launchpad_quote_asset` upsert | — | — |
-| TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key` | — |
+| TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
 | CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_day、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `pool_position_id` `pool_liquidity` `price_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` `pool_quote_asset` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_trade` | 币行 `price_quote` `pool_liquidity` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
-| Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值；币行 `total_supply` `holder_count` set | — |
+| Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
+| Heartbeat | 不落审计 | 内存里记 Envio 的 processedBlock / 时间，给 lag 告警与余额页 `syncedAt` | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 
@@ -91,7 +92,7 @@ if (inserted) {                                               // 累加型只走
 | `/coin/detail` | 币行 + CMC 同步刷 | 币行，不再刷；`priceInPair = price_quote` |
 | `/coin/kline` | CMC points / transactions | M5 读 `launchpad_trade` 逐笔；H1 / H6 / D1 读 `launchpad_kline_minute`；ALL ≤ 30 天分钟桶合并，更长读 `launchpad_kline_day`。LTTB 与档位映射保留 |
 | `/coin/trades` | CMC lastId 游标 | `launchpad_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
-| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_balance` 按币倒序前 100；曲线 / PoolManager 行标 `bondingCurve`；`publicName` / `tags` 恒 null；总数读 `holder_count` |
+| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
 | `/assets/activity` | `launchpad_activity` | `launchpad_trade` 按 trader；trader 为 null 的不出 |
 | `/assets/positions` `/assets/history`（新） | — | `launchpad_position` / `launchpad_trade` 卖出行 |
 | `/assets/balances/tokens` | Blockscout | `launchpad_balance` 按 holder，只留发射币 |

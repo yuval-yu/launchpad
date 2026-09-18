@@ -23,6 +23,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
+| `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
+| `tokenDecimals` `quoteSymbol` | TokenLaunched | 前者是合约常数；后者要 `symbol()` 读链 |
 
 ## topic 与投递
 
@@ -30,7 +32,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 |---|---|
 | topic | `launchpad.chain.event`，只有这一条 |
 | key | token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址 |
-| 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证 |
+| 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证。**跨 key 没有依赖**：TokenLaunched 需要的配对资产参数已放进它自己的 `derived`，不依赖 `QuoteAssetConfigured` 先到 |
+| 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；初始余额由 `TokenLaunched.derived.curveBalance` 给出。这样同一个币的第一条消息一定是 TokenLaunched |
 | 投递 | 至少一次；Java 按 `eventId` 去重 |
 | 编码 | JSON，UTF-8；uint / int 一律**十进制字符串**；地址、哈希、bytes32 一律 **`0x` 小写**；bool 用 JSON 布尔；string 原样；struct 展开成对象 |
 | 事件名 | ABI 名，不起别名；`args` 字段名 = ABI 参数名 |
@@ -125,6 +128,9 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 |
 | `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 |
 | `derived.totalSupply` | 【解析】【必须】总供应，合约常数 1e9 × 1e18。市值 = 价 × 它；持有占比分母；Java 不写合约常数 |
+| `derived.tokenDecimals` | 【解析】【必须】发射币精度，合约常数 18。本币数量换整枚；Java 不写合约常数 |
+| `derived.curveBalance` | 【解析】【必须】发币时铸给曲线的数量（= totalSupply）。替代不发的铸币 Transfer：Java 据此写曲线的余额行、`holder_count = 1` |
+| `derived.quoteSymbol` | 【解析】【可选】配对资产代号，Envio 用 Effect 读一次 `symbol()`，原生币给 `ETH`。运营名单里没有这个资产时的展示兜底 |
 
 ```json
 "args": {
@@ -136,8 +142,9 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
   "socials": { "website": "", "twitter": "", "telegram": "", "discord": "", "farcaster": "",
                "storyFun": "https://story.fun/drama/1024" }
 },
-"derived": { "quoteDecimals": "18", "initialVirtualQuoteReserve": "1000000000000000000",
-             "graduationQuoteThreshold": "4000000000000000000", "totalSupply": "1000000000000000000000000000" }
+"derived": { "quoteDecimals": "18", "quoteSymbol": "ETH", "initialVirtualQuoteReserve": "1000000000000000000",
+             "graduationQuoteThreshold": "4000000000000000000",
+             "totalSupply": "1000000000000000000000000000", "tokenDecimals": "18", "curveBalance": "1000000000000000000000000000" }
 ```
 
 ### CurveBuy（BondingCurve）
@@ -222,6 +229,7 @@ Java 写币行 `pool_created_at` / `pool_id` / `pool_position_id` / `pool_liquid
 | `args.tokenDust` | 【原始】【可选】本币尾数。存档 |
 | `args.quoteDust` | 【原始】【可选】配对资产尾数。存档 |
 | `derived.priceQuote` | 【解析】【必须】池初始价，一枚本币值多少配对资产，由 `sqrtPriceX96` 按 currency0 / 1 方向与两侧精度换算。建池到第一笔 Swap 之间的币价 |
+| `derived.poolQuoteReserve` `derived.poolTokenReserve` | 【解析】【待定，Q3】池初始两侧储备。同 Swap |
 
 ### PoolRegistered（GraduatedPoolHook）
 
@@ -267,6 +275,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `derived.hookFee` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.fee`。费用展示 |
 | `derived.creatorTax` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.creatorTax`。费用展示 |
 | `derived.feeCurrency` | 【解析】【必须】费用按哪个币收，可能是本币也可能是配对资产。费用展示时换算 |
+| `derived.poolQuoteReserve` `derived.poolTokenReserve` | 【解析】【待定，Q3】成交后池两侧的储备。只在 `liquidity_usd` 要做时才要；Java 只乘价，不做 Uniswap 数学 |
 
 ```json
 "payload": {
@@ -293,7 +302,9 @@ Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `t
 | `derived.fromBalance` | 【解析】【必须，from 为零地址时 null】转出方**这笔之后**的余额。直接 set 余额表；Java 不做加减 |
 | `derived.toBalance` | 【解析】【必须，to 为零地址时 null】转入方**这笔之后**的余额。同上 |
 | `derived.totalSupply` | 【解析】【必须】这笔之后的总供应。销毁后市值分母跟着减 |
-| `derived.positiveBalanceCount` | 【解析】【必须】这笔之后余额 > 0 的地址数，含合约。持有人数，读时再剔曲线 / PoolManager |
+| `derived.positiveBalanceCount` | 【解析】【必须】这笔之后余额 > 0 的地址数，含合约。持有人数，读时按 kind 剔协议合约 |
+| `derived.fromKind` | 【解析】【必须】转出方是什么：`USER` / `CURVE` / `POOL_MANAGER` / `FACTORY` / `RECEIVER` / `LOCKER` / `ROUTER` / `VAULT` / `ZERO`。协议合约的地址表只在 Envio 的 config 里；Java 存进余额行，持有者榜标「Bonding Curve」、剔除协议合约、资产页只列 USER 都靠它 |
+| `derived.toKind` | 【解析】【必须】转入方是什么，取值同上 |
 
 ```json
 "payload": {
@@ -301,11 +312,24 @@ Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `t
   "signature": "Transfer(address,address,uint256)",
   "args": { "from": "0x73d4…31eb", "to": "0x2bf5…7675", "value": "714285714285714285714285715" },
   "derived": { "fromBalance": "285714285714285714285714285", "toBalance": "714285714285714285714285715",
+               "fromKind": "CURVE", "toKind": "USER",
                "totalSupply": "1000000000000000000000000000", "positiveBalanceCount": "2" }
 }
 ```
 
-一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头。
+一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头。铸币那条不发（见「topic 与投递」）。
+
+### Heartbeat（不是合约事件，Envio 每分钟发一条）
+
+`eventName = "Heartbeat"`，`payload.args` 为空，`payload.derived` 如下；`eventId = v1:{chainId}:heartbeat:{processedBlock}`。不落审计表，Java 只更新内存里的「Envio 最近处理到哪」。
+
+| 字段 | 含义与说明 |
+|---|---|
+| `derived.headBlock` | 【解析】【必须】Envio 看到的链头区块号。与下一项的差 = Envio 落后多少，超阈值告警 |
+| `derived.processedBlock` | 【解析】【必须】Envio 已处理完的区块号。Java 消费者 lag 告警的基准；资产页余额的 `syncedAt` 取它对应的区块时间 |
+| `derived.processedBlockTime` | 【解析】【必须】已处理区块的时间，秒。同上 |
+
+没有它 Java 分不清「市场安静」和「Envio 停了」。
 
 ## 不发的事件
 
