@@ -31,7 +31,9 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条：一条 `INSERT IGNORE … VALUES (…),(…)` 落审计，再按 `(blockNumber, logIndex)` 逐条投影，整批 ack；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
 
-**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败的消息发到 `launchpad.chain.event.DLT`，内部接口按 offset 区间回灌。现在这两种情况只剩一行日志，消息等于丢了。
+**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败、**`chainId` 与配置不符**的消息发到 `launchpad.chain.event.DLT`，内部接口按 offset 区间回灌。现在前两种情况只剩一行日志，消息等于丢了。
+
+**chainId 只做一件事。** 只接一条链，`chainId` 在消息、每张表、唯一键里都保留，但 Java 里唯一用它的地方是解析层：不等于 admin 配置的链就进死信，不落审计表。这是防「测试网的 Envio 误配到主网库」的护栏；除此之外任何代码不许按 chainId 分支。
 
 **审计表。** `token_address` 列（从 `derived.token` / `args.token` / `payload.address` 抽）给按币回放；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
 

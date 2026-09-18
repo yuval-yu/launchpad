@@ -66,7 +66,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 |---|---|
 | `eventId` | 【必须】`v1:{chainId}:{blockHash}:{logIndex}:{removed}`，`v1` 是契约版本。审计表唯一键；至少一次投递靠它去重；重放按它定位 |
 | `eventName` | 【必须】ABI 事件名。路由到 handler |
-| `chainId` | 【必须】EVM chain id，十进制字符串。所有表的 `chain_id` 列 |
+| `chainId` | 【必须】EVM chain id，十进制字符串。所有表的 `chain_id` 列。**与 Java 配置的链不符 → 整条进死信，不落审计表**（防环境混线） |
 | `blockNumber` | 【必须】区块高度，十进制字符串。同币事件的顺序；按区块区间重放；余额乱序保护 |
 | `blockHash` | 【必须】区块哈希，小写。`eventId` 的组成部分；审计 |
 | `blockTimestamp` | 【必须，非 0】区块时间，秒，十进制字符串。成交时间、K 线分桶、发币时间排序、按区块时间取配对资产价格固化 USD。Java 没有查区块的兜底，缺了整条消息作废 |
