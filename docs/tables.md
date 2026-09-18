@@ -25,7 +25,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   tx_from                CHAR(42)
   block_time             BIGINT                # 毫秒；消息必带
   contract_address       CHAR(42)              # payload.address
-  token_address          CHAR(42)              # 该事件属于哪个币（derived.token / args.token / Transfer 的 address）
+  token_address          CHAR(42)              # 这条事件属于哪个发射币，给按币回放用
   raw_message            LONGTEXT              # 原文；只保留最近 3 个月的分区，更早 DROP PARTITION
   status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED / WAITING_TOKEN（币还没到，不计次数，TokenLaunched 到了按币重投）
   attempts               INT
@@ -49,34 +49,34 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
 launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
-  log_index              INT                   # 日志序号
-  token_address          CHAR(42)
-  venue                  VARCHAR(8)            # CURVE / POOL
-  side                   VARCHAR(4)            # BUY / SELL
-  trader_address         CHAR(42)              # derived.trader；池内解不出为 NULL
-  counterparty_address   CHAR(42)              # CurveBuy.buyer / CurveSell.recipient / Swap.sender
-  tx_from                CHAR(42)
-  pool_id                CHAR(66)              # 池内才有
-  token_amount           DECIMAL(65,0)         # 本币数量
-  quote_amount           DECIMAL(65,0)         # 配对资产：买 = grossQuoteIn（实付），卖 = netQuoteOut（实收）
-  net_quote_amount       DECIMAL(65,0)         # 买 = netQuoteIn，卖 = grossQuoteOut（进出定价储备的部分）
-  fee_amount             DECIMAL(65,0)         # 事件 fee 总额；池内 = hookFee
-  base_fee               DECIMAL(65,0)         # derived.baseFee
-  creator_tax            DECIMAL(65,0)         # derived.creatorTax；池内 = HookFeeCollected.creatorTax
-  snipe_tax              DECIMAL(65,0)         # derived.snipeTax，没有为 0
-  quote_amount_whole     DECIMAL(36,18)        # quote_amount 按 quote_asset_decimals 换算的整枚数
-  avg_price_quote        DECIMAL(36,18)        # 这笔均价：net_quote_amount ÷ token_amount；持仓成本用它
-  price_quote            DECIMAL(36,18)        # 成交后边际价，derived.priceQuote；K 线用它
-  quote_usd_price        DECIMAL(20,8)         # priceAt(配对资产, block_time)：已知的最近一行，不看多旧；NULL 只在该资产从未有价时
-  amount_usd             DECIMAL(20,8)         # quote_amount_whole × quote_usd_price
-  cost_quote_released    DECIMAL(36,18)        # 卖出才有：释放的成本；插入前用卖出前的持仓算好，不回填
-  cost_usd_released      DECIMAL(20,8)
-  pnl_quote              DECIMAL(36,18)        # 卖出才有
-  pnl_usd                DECIMAL(20,8)
-  pnl_pct                DECIMAL(12,4)
-  block_number           BIGINT
-  block_time             BIGINT
-  created_at             BIGINT
+  log_index              INT                   # 这条成交日志在区块里的序号；和 tx_hash 一起唯一标识一笔成交
+  token_address          CHAR(42)              # 成交的是哪个发射币
+  venue                  VARCHAR(8)            # 在哪成交：CURVE = 曲线阶段，POOL = 毕业后的 Uniswap 池
+  side                   VARCHAR(4)            # BUY = 用户拿配对资产买币，SELL = 用户卖币换回配对资产
+  trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址（穿透了路由 / 中继）；池内成交偶尔认不出来，为 NULL
+  counterparty_address   CHAR(42)              # 交易的另一方：买入时是发起调用的地址（经路由时是路由），卖出时是收款地址，池内是路由
+  tx_from                CHAR(42)              # 这笔交易链上的发起人；用 gasless 时是中继地址，所以只作备查
+  pool_id                CHAR(66)              # 池内成交才有：在哪个 Uniswap 池成交的
+  token_amount           DECIMAL(65,0)         # 成交了多少枚发射币（最小单位，未除精度）
+  quote_amount           DECIMAL(65,0)         # 用户实际付出（买）或实际收到（卖）的配对资产数量（最小单位），含手续费。**这是成交额**
+  net_quote_amount       DECIMAL(65,0)         # 去掉手续费后真正进出曲线储备的配对资产数量（最小单位）；算这笔的均价用它
+  fee_amount             DECIMAL(65,0)         # 这笔一共扣了多少手续费（配对资产最小单位）= 下面三项之和
+  base_fee               DECIMAL(65,0)         # 手续费里归平台的基础费
+  creator_tax            DECIMAL(65,0)         # 手续费里归币的创作者的那部分（创作者税）
+  snipe_tax              DECIMAL(65,0)         # 手续费里的反狙击税：发币后头几秒内抢买要多付的那部分；没有就是 0
+  quote_amount_whole     DECIMAL(36,18)        # quote_amount 除以配对资产精度后的「整枚」数，直接可读，比如 1.5 ETH 或 200 USDG
+  avg_price_quote        DECIMAL(36,18)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount；持仓成本按它算
+  price_quote            DECIMAL(36,18)        # 这笔成交完成后币的最新价：一枚发射币值多少配对资产；K 线的点用它
+  quote_usd_price        DECIMAL(20,8)         # 成交那一刻一枚配对资产值多少美元（取价格历史表里区块时间之前最近的一条）；从未有过价才 NULL
+  amount_usd             DECIMAL(20,8)         # 这笔成交折成美元是多少 = quote_amount_whole × quote_usd_price
+  cost_quote_released    DECIMAL(36,18)        # 卖出才有：这次卖掉的币当初是花多少配对资产买的（按移动平均成本算），用来算盈亏
+  cost_usd_released      DECIMAL(20,8)         # 同上，美元口径
+  pnl_quote              DECIMAL(36,18)        # 卖出才有：这次卖赚了或亏了多少配对资产 = 实收 − 当初成本
+  pnl_usd                DECIMAL(20,8)         # 同上，美元口径
+  pnl_pct                DECIMAL(12,4)         # 同上，百分比：赚 / 亏了成本的百分之几
+  block_number           BIGINT                # 成交在哪个区块
+  block_time             BIGINT                # 成交时间（区块时间，毫秒）
+  created_at             BIGINT                # 这行写进库的时间
                                                # PK  (id, block_time)
                                                # UK  (tx_hash, log_index, block_time)             一条日志一行；block_time 只为满足分区规则
                                                # IDX (token_address, block_time, id)              成交页签、K 线 M5、按币回放
@@ -88,7 +88,7 @@ launchpad_balance                              # 一个（币, 地址）一行�
   chain_id               BIGINT
   token_address          CHAR(42)
   holder_address         CHAR(42)              # 持有地址
-  holder_kind            VARCHAR(16)           # derived.fromKind / toKind：USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT；持有者榜标行、剔协议合约、资产页只列 USER
+  holder_kind            VARCHAR(16)           # 这个持有地址是谁：USER = 普通用户钱包；CURVE = 曲线合约；POOL_MANAGER = Uniswap 池；FACTORY / RECEIVER / LOCKER / ROUTER / VAULT = 平台的其它合约。持有者榜给 CURVE 标「Bonding Curve」、其余非 USER 的不展示，资产页只列 USER
   balance                DECIMAL(65,0)
   block_number           BIGINT                # 水位线：只接受 (block_number, log_index) 更新的 Transfer（乱序保护）
   log_index              INT
@@ -159,8 +159,8 @@ launchpad_token                                # 一个发射币一行；列表�
   creator_address        CHAR(42)              # TokenLaunched.creator；对外仍叫 deployerAddress
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
-  quote_asset_symbol     VARCHAR(16)           # 运营名单按地址补；名单外用 derived.quoteSymbol
-  quote_asset_decimals   TINYINT               # derived.quoteDecimals，链上权威
+  quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；优先取运营名单里的，名单里没有就用消息里给的
+  quote_asset_decimals   TINYINT               # 配对资产的精度（ETH 18、USDG 6），所有配对资产金额换整枚都靠它；来自消息，Java 不查链
   quote_config_hash      CHAR(66)
   launch_config_id       INT
   curve_fee_bps          SMALLINT UNSIGNED
@@ -170,8 +170,8 @@ launchpad_token                                # 一个发射币一行；列表�
   buyback_enabled        TINYINT(1)
   initial_virtual_quote_reserve DECIMAL(65,0)
   graduation_threshold   DECIMAL(65,0)
-  total_supply           DECIMAL(65,0)         # derived.totalSupply，Transfer 消息 set
-  token_decimals         TINYINT               # derived.tokenDecimals
+  total_supply           DECIMAL(65,0)         # 币的总供应（最小单位）；发币时 10 亿枚，有人销毁就减；市值 = 价 × 它
+  token_decimals         TINYINT               # 发射币的精度，合约固定 18；来自消息
   name                   VARCHAR(128)
   symbol                 VARCHAR(32)
   description            VARCHAR(512)          # 对外 tagline
@@ -186,16 +186,16 @@ launchpad_token                                # 一个发射币一行；列表�
   rescued_at             BIGINT                # LaunchGraduationRescued
   pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接、与 Swap 对照）；池的其它信息不存
   swept_quote / swept_token DECIMAL(65,0)      # LaunchSwept 交给毕业流程的量
-  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve：曲线净募集，毕业进度分子（对外 quoteRaised）；曲线关闭后冻结
-  liquidity_quote        DECIMAL(65,0)         # derived.liquidityQuote：流动性，以配对资产计；曲线与池内成交都推进
+  quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变
+  liquidity_quote        DECIMAL(65,0)         # 这个币现在的流动性有多少，以配对资产计（最小单位）；曲线阶段和毕业后都由消息给，每笔成交更新；乘配对资产美元价就是 liquidity_usd
   token_reserve          DECIMAL(65,0)
-  price_quote            DECIMAL(36,18)        # 最近一笔成交后价，配对资产计
+  price_quote            DECIMAL(36,18)        # 币的最新价：一枚发射币值多少配对资产，来自最近一笔成交
   state_block_number     BIGINT                # set 型链上列的水位线：只接受 (block, log) 更新的事件（乱序保护）
   state_log_index        INT
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
   cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)
-  holder_count           BIGINT                # derived.positiveBalanceCount，Transfer 消息 set；含合约，读时剔曲线 / PoolManager
+  holder_count           BIGINT                # 余额大于 0 的地址有多少个，含曲线、池子这些合约；展示时减掉非用户地址
 
   # ── 口径列：线二写（每分钟） ──
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
