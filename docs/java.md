@@ -47,7 +47,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 // 同一个事务里
 Position pos = positions.lock(chainId, trader, token);        // SELECT … FOR UPDATE，没有就是空持仓
 Trade trade = Trade.from(msg, priceAt(...), pos);             // 卖出行的 pnl_* 在这里用「卖出前的持仓」算好，不回填
-boolean inserted = trades.insertIfAbsent(trade);              // 唯一键 (chain_id, tx_hash, log_index)；重复 → false
+boolean inserted = trades.insertIfAbsent(trade);              // 唯一键 (tx_hash, log_index, block_time)；重复 → false
 tokens.setReservesAndPrice(token, quoteReserve, tokenReserve, priceQuote);   // set 型，幂等
 tokens.advanceLastTradeAt(token, blockTime);
 if (inserted) {                                               // 累加型只走一次
