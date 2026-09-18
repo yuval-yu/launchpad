@@ -159,7 +159,7 @@ launchpad_token                                # 一个发射币一行；列表�
   creator_address        CHAR(42)              # TokenLaunched.creator；对外仍叫 deployerAddress
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
-  quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；优先取运营名单里的，名单里没有就用消息里给的
+  quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；按地址从运营名单（admin 的 quoteTokens 配置）取，名单里没有为 NULL
   quote_asset_decimals   TINYINT               # 配对资产的精度（ETH 18、USDG 6），所有配对资产金额换整枚都靠它；来自消息，Java 不查链
   quote_config_hash      CHAR(66)
   launch_config_id       INT

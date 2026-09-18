@@ -28,7 +28,6 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `liquidityQuote` | CurveBuy · CurveSell · V4PoolGraduated · Swap | 该币此刻的流动性，以配对资产计。曲线阶段 = 曲线里的配对资产 × 2；毕业后 = 池两侧按池价折成配对资产之和（v4 不存余额，要从 L 与 √P 推）。Java 只乘配对资产价得 `liquidity_usd`，不存池子信息 |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
-| `quoteSymbol` | TokenLaunched | 要 `symbol()` 读链（可选） |
 
 ## topic 与投递
 
@@ -89,7 +88,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，缺 derived
 
-Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。
+Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的代号、图标由运营配置（admin 的 `quoteTokens` 名单）按地址补，不走消息。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -118,7 +117,6 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `derived.quoteDecimals` | 【解析】【必须】配对资产精度，Envio 按 `quoteConfigHash` 查它自己维护的注册表配置得到。落币行，成交换算全靠它；Java 不存注册表 | **缺** |
 | `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 | **缺** |
 | `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 | **缺** |
-| `derived.quoteSymbol` | 【解析】【可选】配对资产代号，Envio 用 Effect 读一次 `symbol()`，原生币给 `ETH`。运营名单里没有这个资产时的展示兜底 | 缺（可选） |
 
 ```json
 "args": {
@@ -130,7 +128,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
   "socials": { "website": "", "twitter": "", "telegram": "", "discord": "", "farcaster": "",
                "storyFun": "https://story.fun/drama/1024" }
 },
-"derived": { "quoteDecimals": "18", "quoteSymbol": "ETH", "initialVirtualQuoteReserve": "1000000000000000000",
+"derived": { "quoteDecimals": "18", "initialVirtualQuoteReserve": "1000000000000000000",
              "graduationQuoteThreshold": "4000000000000000000" }
 ```
 

@@ -51,7 +51,6 @@ title: 11 · 与扫链现状的差距
 | `derived.quoteDecimals` | ✓ | 按 `quoteConfigHash` 查 QuoteAssetConfig |
 | `derived.graduationQuoteThreshold` | ✓ | 同上 |
 | `derived.initialVirtualQuoteReserve` | ✓ | 同上 |
-| `derived.quoteSymbol` | 可选 | Effect 读 `symbol()`，原生币 `ETH` |
 
 ### CurveBuy / CurveSell
 

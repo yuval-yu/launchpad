@@ -102,7 +102,7 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 每个 handler 三步：解码 → 补 `derived` → 调 `publish` effect。不做任何口径。
 
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`，**不发消息**（Java 不需要；TokenLaunched 的 derived 里带精度 / 阈值 / 初始储备）
-- **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `quoteSymbol`（Effect 读 `symbol()`，原生币 `ETH`）；发消息。总供应 / 精度 / 铸币量是 `LaunchDefaults` 常数，Java 自己有，不发
+- **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项；发消息。总供应 / 精度 / 铸币量是 `LaunchDefaults` 常数，Java 自己有，不发
 - **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
 - **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote、liquidityQuote；发消息
 - **CurveCompleted / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息（曲线关闭订曲线的 CurveCompleted，工厂的 LaunchSwept 不订）
