@@ -26,7 +26,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   block_time             BIGINT                # 毫秒；消息必带
   contract_address       CHAR(42)              # payload.address
   token_address          CHAR(42)              # 该事件属于哪个币（derived.token / args.token / Transfer 的 address）；QuoteAssetConfigured 为 NULL
-  raw_message            LONGTEXT              # 原文；PROJECTED 且超过 90 天的行清空
+  raw_message            LONGTEXT              # 原文；只保留最近 3 个月的分区，更早 DROP PARTITION
   status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED
   attempts               INT
   error                  TEXT
