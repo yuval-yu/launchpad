@@ -31,12 +31,12 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 | 项 | 值 |
 |---|---|
-| topic | `launchpad.chain.event`，只有这一条 |
+| topic | `launchpad.chain.events`（沿用扫链同学已定的名字），只有这一条 |
 | key | token 地址（小写）；`QuoteAssetConfigured` 用 asset 地址 |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证。**跨 key 没有依赖**：TokenLaunched 需要的配对资产参数已放进它自己的 `derived`，不依赖 `QuoteAssetConfigured` 先到 |
 | 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；初始余额由 `TokenLaunched.derived.curveBalance` 给出。这样同一个币的第一条消息一定是 TokenLaunched |
 | 投递 | 至少一次；Java 按 `eventId` 去重 |
-| 编码 | JSON，UTF-8；uint / int 一律**十进制字符串**；地址、哈希、bytes32 一律 **`0x` 小写**；bool 用 JSON 布尔；string 原样；struct 展开成对象 |
+| 编码 | JSON，UTF-8；`args` / `derived` 里的 uint / int 一律**十进制字符串**；信封的 `blockNumber` `blockTimestamp` `chainId` `logIndex` 可以是 JSON number（安全整数范围内，Java 两种都收）；地址、哈希、bytes32 一律 **`0x` 小写**；bool 用 JSON 布尔；string 原样；struct 展开成对象 |
 | 事件名 | ABI 名，不起别名；`args` 字段名 = ABI 参数名 |
 
 ## 信封：每条消息都要
@@ -75,7 +75,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `txFrom` | 【必须】交易发起人，小写（Envio 要开 `transaction_fields: [from]`）。备查列，排查中继 / 路由问题时用 |
 | `removed` | 【必须】恒 `false`。语义保留，Java 收到 `true` 只留审计不投影 |
 | `payload.address` | 【必须】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 |
-| `payload.signature` | 【必须】规范签名，如 `CurveBuy(address,address,uint128,uint128,uint96,uint128)`。区分同名重载；审计 |
+| `payload.signature` | 【可选】规范签名，如 `CurveBuy(address,address,uint128,uint128,uint96,uint128)`。审计用；没有同名重载，不靠它路由 |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 |
 | `payload.derived` | 【按事件】Envio 解析的字段，对象。见各事件 |
 

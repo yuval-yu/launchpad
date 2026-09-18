@@ -26,6 +26,7 @@ export default defineConfig({
       { text: '对照', items: [
         { text: '8 · 前端接口', link: '/frontend' },
         { text: '9 · 合约与事件', link: '/events' },
+        { text: '11 · 与扫链现状的差距', link: '/gap' },
       ] },
       { text: '执行', items: [
         { text: '10 · 落地与风险', link: '/rollout' },

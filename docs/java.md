@@ -10,7 +10,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 | 模块 | 处置 | 说明 |
 |---|---|---|
-| `mq/consumer` · `service/chain` 分发 | **改** | 监听 `launchpad.chain.event`；`ChainEventParser` 校验新信封（`txFrom` / `derived`）；registry 只按 `eventName` 路由，`LaunchSource` 删除；批量消费 + 分区并行；死信 topic |
+| `mq/consumer` · `service/chain` 分发 | **改** | 监听 `launchpad.chain.events`；`ChainEventParser` 校验新信封（`txFrom` / `derived`）；registry 只按 `eventName` 路由，`LaunchSource` 删除；批量消费 + 分区并行；死信 topic |
 | `service/chain/pons/*` | **删** | PONS（之前接的外部发射台）时代的 handler 六个、`PonsArgs`、平台归属判定、`PairedAssetResolver`、负向表 |
 | `service/chain/handler/*` | **新** | 十种事件的 handler，见下 |
 | `service/activity/*` · `controller/ActivityController` · `job/ActivityResolveJob` · `chain/decode/*` | **删** | 前端上报整条链路；`ActivityWriter` 的两来源合并退化成 insertIfAbsent |
@@ -25,13 +25,13 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 ## 消费管线
 
-**监听与解析。** `@KafkaListener(topics = "launchpad.chain.event")`；`ChainEventMessage` / `ChainEventParser` 按[第 4 页](/messages)的信封写，只校验信封，`derived` 与 `args` 一样交给 handler。审计表唯一键只剩 `event_id`。
+**监听与解析。** `@KafkaListener(topics = "launchpad.chain.events")`；`ChainEventMessage` / `ChainEventParser` 按[第 4 页](/messages)的信封写，只校验信封，`derived` 与 `args` 一样交给 handler。审计表唯一键只剩 `event_id`。
 
 **不做入库前过滤。** 工厂发的全收，没有「是不是我们的币」的判断。乱序（成交先于发币到达）不丢：handler 抛可重试异常 → FAILED → `ChainEventRetryJob` 一分钟后重投。
 
 **批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条：一条 `INSERT IGNORE … VALUES (…),(…)` 落审计，再按 `(blockNumber, logIndex)` 逐条投影，整批 ack；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
 
-**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败、**`chainId` 与配置不符**的消息发到 `launchpad.chain.event.DLT`，内部接口按 offset 区间回灌。现在前两种情况只剩一行日志，消息等于丢了。
+**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败、**`chainId` 与配置不符**的消息发到 `launchpad.chain.events.DLT`，内部接口按 offset 区间回灌。现在前两种情况只剩一行日志，消息等于丢了。
 
 **chainId 只做一件事。** 只接一条链，`chainId` 在消息、每张表、唯一键里都保留，但 Java 里唯一用它的地方是解析层：不等于 admin 配置的链就进死信，不落审计表。这是防「测试网的 Envio 误配到主网库」的护栏；除此之外任何代码不许按 chainId 分支。
 
