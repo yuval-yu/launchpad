@@ -30,6 +30,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
   status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED / WAITING_TOKEN（币还没到，不计次数，TokenLaunched 到了按币重投）
   attempts               INT
   error                  TEXT
+  kafka_key              VARCHAR(66)           # 消息的分区键（应 = token 地址），排障核对
   kafka_partition        INT
   kafka_offset           BIGINT
   received_at            BIGINT

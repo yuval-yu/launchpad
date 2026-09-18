@@ -35,7 +35,9 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **chainId 只做一件事。** 只接一条链，`chainId` 在消息、每张表、唯一键里都保留，但 Java 里唯一用它的地方是解析层：不等于 admin 配置的链就进死信，不落审计表。这是防「测试网的 Envio 误配到主网库」的护栏；除此之外任何代码不许按 chainId 分支。
 
-**审计表。** `token_address` 列（从 `derived.token` / `args.token` / `payload.address` 抽）给按币回放；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
+**审计表。** `token_address` 列（从 `derived.token` / `args.token` / `payload.address` 抽）给按币回放；`kafka_key` 列与 `kafka_partition` / `kafka_offset` 放一起，排障时能看出分区是不是按币分的；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
+
+**Kafka key 只核对、不定业务。** 监听器用 `@Header(KafkaHeaders.RECEIVED_KEY)`（批量模式 `record.key()`）拿到 key，解析层比对「key == 这条消息反查出的 token」，不等打 WARN。认币始终按消息体（曲线 `payload.address` 查 `curve_address`、Swap `args.id` 查 `pool_id`、Transfer `payload.address`），Envio 将来改键 Java 不用动。
 
 ## handler：十种事件
 

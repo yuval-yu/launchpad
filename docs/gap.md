@@ -11,7 +11,7 @@ title: 11 · 与扫链现状的差距
 | 项 | 现状 | 我们要的 | 差距 | 处理 |
 |---|---|---|---|---|
 | topic | `launchpad.chain.events` | `launchpad.chain.event` | 名字差一个 s | **接受现状**，文档改成 `launchpad.chain.events` |
-| Kafka key | TokenLaunched 用 `args.token`；曲线事件用 `payload.address`（curve 地址） | 所有事件同一种键 | **同一个币的发币和成交落在不同分区，顺序不保证** | **必须改**：要么全部 key = token，要么全部 key = curve（TokenLaunched 也带 curve），不能混用。Transfer / Swap 也要映射到同一种键 |
+| Kafka key | TokenLaunched 用 `args.token`；曲线事件用 `payload.address`（curve 地址） | 所有 token 相关事件 key = token 地址 | 混用两种键 | **已确认（09-18）：扫链同学会把 token 相关事件的 key 全部改为 token 地址**，待落地。Java 侧收到后核对 key 与反查出的 token 是否一致，不一致打 WARN |
 | 信封字段 | 有 `eventId` `eventName` `blockNumber` `blockHash` `blockTimestamp` `chainId` `logIndex` `removed` `txHash` `payload.address` `payload.args` | 同左 + `txFrom` + `payload.signature` + `payload.derived` | 缺 `txFrom`、`signature`、`derived` | `txFrom` 加（开 `transaction_fields: [from]`）；`signature` 降为可选；`derived` 见下 |
 | 数值类型 | `blockNumber` `blockTimestamp` `chainId` `logIndex` 是 JSON number；`args` 里的整数是十进制字符串 | 全部十进制字符串 | 信封四个字段是 number | **接受现状**，都在安全整数范围内，Java 解析层两种都收 |
 | 地址 / 哈希 | `0x` 小写 | 同 | 无 | — |
@@ -81,7 +81,7 @@ title: 11 · 与扫链现状的差距
 
 ## 建议：按这个顺序对齐
 
-1. **先统一 key。** 所有事件用同一种键：全部 token（Transfer 的 `address` 就是 token，curve / poolId 事件从内部映射反查）或全部 curve（TokenLaunched 带 curve，Transfer / Swap 反查）。这一条不改，同一个币的 TokenLaunched 和首买会落到两个分区，Java 收到「币还没到」的成交只能等重投。改动一行，影响最大。
+1. **统一 key = token 地址。** 已确认，扫链同学落地中。Transfer 的 `address` 就是 token；曲线事件与 Swap 从内部映射反查。
 2. **补 `derived.trader`。** 没有它 Activity 和持仓没有归属。`derived.token` 不必须：Java 用 curve / poolId 在自己的币表里反查。
 3. **补 Transfer 与 Swap 两种事件。** 没有前者没有余额和持有者；没有后者已毕业的币是死的。
 4. **补 CurveBuy / CurveSell 的其余 derived**（费用拆分、储备、价格、流动性）与 TokenLaunched 的 derived。
