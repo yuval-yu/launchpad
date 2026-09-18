@@ -59,12 +59,12 @@ if (inserted) {                                               // 累加型只走
 |---|---|---|---|
 | QuoteAssetConfigured | `launchpad_quote_asset` upsert | — | — |
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_day、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_day、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
-| V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `pool_position_id` `price_quote` `quote_reserve` | — |
-| PoolRegistered | — | 币行 `pool_id` `pool_quote_asset` | — |
+| V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
+| PoolRegistered | — | 币行 `pool_id` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
-| Swap | `launchpad_trade` | 币行 `price_quote` `quote_reserve` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
+| Swap | `launchpad_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
 | Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
 | Heartbeat | 不落审计 | 内存里记 Envio 的 processedBlock / 时间，给 lag 告警与余额页 `syncedAt` | — |
 
@@ -79,7 +79,7 @@ if (inserted) {                                               // 累加型只走
 | 线 | 输入 | 算 | 写 | 频率 |
 |---|---|---|---|---|
 | **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_coin_price` 追加分钟行 | 每分钟 |
-| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = quote_reserve × 配对资产价 × 2`（曲线与毕业后同一公式，`quote_reserve` 由消息给）、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
+| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
 | **三 · 滚动窗口** | `launchpad_trade` 最近 24h + `launchpad_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close） | 币行两列 | 每分钟；没成交的币置 0 |
 
 协议数据页不需要定时线：`launchpad_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。

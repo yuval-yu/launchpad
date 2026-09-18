@@ -179,11 +179,10 @@ launchpad_token                                # 一个发射币一行，uk (cha
   curve_closed_at        BIGINT                # LaunchSwept
   pool_created_at        BIGINT                # V4PoolGraduated
   rescued_at             BIGINT                # LaunchGraduationRescued
-  pool_id                CHAR(66)              # Uniswap v4 poolId，前端拼链接
-  pool_quote_asset       CHAR(42)              # PoolRegistered.quoteAsset，核对用
-  pool_position_id       DECIMAL(65,0)         # 永久锁定的 LP NFT id，前端链接
+  pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接、与 Swap 对照）；池的其它信息不存
   swept_quote / swept_token DECIMAL(65,0)      # LaunchSwept 交给毕业流程的量
-  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve：曲线阶段 = 曲线净募集（进度分子，对外 quoteRaised）；毕业后 = 池里配对资产侧数量。两阶段都是 liquidity_usd 的底数
+  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve：曲线净募集，毕业进度分子（对外 quoteRaised）；曲线关闭后冻结
+  liquidity_quote        DECIMAL(65,0)         # derived.liquidityQuote：流动性，以配对资产计；曲线与池内成交都推进
   token_reserve          DECIMAL(65,0)
   price_quote            DECIMAL(36,18)        # 最近一笔成交后价，配对资产计
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
@@ -198,7 +197,7 @@ launchpad_token                                # 一个发射币一行，uk (cha
   og_key                 VARCHAR(160)
   price_usd              DECIMAL(36,18)        # price_quote × 配对资产现价
   market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
-  liquidity_usd          DECIMAL(20,8)         # quote_reserve 折美元 × 2，曲线与毕业后同一公式
+  liquidity_usd          DECIMAL(20,8)         # liquidity_quote × 配对资产价
   creator_holding_pct    DECIMAL(9,4)          # balance(creator) ÷ total_supply；对外 deployerHoldingPct
 
   # ── 口径列：线三写（每分钟） ──

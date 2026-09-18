@@ -22,7 +22,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
-| `quoteReserve` | V4PoolGraduated · Swap | 池里配对资产那一侧的数量；v4 池不存余额，要从 `liquidity` 与 `sqrtPriceX96` 推，是 Uniswap 数学。给 `liquidity_usd`，与曲线阶段同名同义 |
+| `liquidityQuote` | CurveBuy · CurveSell · V4PoolGraduated · Swap | 该币此刻的流动性，以配对资产计。曲线阶段 = 曲线里的配对资产 × 2；毕业后 = 池两侧按池价折成配对资产之和（v4 不存余额，要从 L 与 √P 推）。Java 只乘配对资产价得 `liquidity_usd`，不存池子信息 |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
 | `tokenDecimals` `quoteSymbol` | TokenLaunched | 前者是合约常数；后者要 `symbol()` 读链 |
@@ -168,6 +168,7 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
 | `derived.quoteReserve` | 【解析】【必须】成交后曲线净募集（`trackedNetQuote`）。**毕业进度分子**（对外 `quoteRaised`）；流动性 |
 | `derived.tokenReserve` | 【解析】【必须】成交后曲线库存（`trackedTokens`）。存档、核对 |
 | `derived.priceQuote` | 【解析】【必须】成交后边际价，一枚本币值多少配对资产，十进制小数字符串。**币价**、K 线、市值 |
+| `derived.liquidityQuote` | 【解析】【必须】成交后的流动性，以配对资产计，最小单位。`liquidity_usd = liquidityQuote × 配对资产价` |
 
 ```json
 "payload": {
@@ -179,7 +180,7 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
   "derived": { "token": "0x3d7e…4cdd", "trader": "0x2bf5…7675",
                "baseFee": "666666666667", "creatorTax": "333333333333", "snipeTax": "0",
                "quoteReserve": "99000000000000", "tokenReserve": "285714285714285714285714285",
-               "priceQuote": "0.000000000000140" }
+               "priceQuote": "0.000000000000140", "liquidityQuote": "198000000000000" }
 }
 ```
 
@@ -202,6 +203,7 @@ Java 写 `launchpad_trade`（CURVE / SELL），持仓结一笔已实现盈亏，
 | `derived.quoteReserve` | 【解析】【必须】同 CurveBuy |
 | `derived.tokenReserve` | 【解析】【必须】同 CurveBuy |
 | `derived.priceQuote` | 【解析】【必须】同 CurveBuy |
+| `derived.liquidityQuote` | 【解析】【必须】同 CurveBuy |
 
 ### LaunchSwept（LaunchFactory）
 
@@ -215,14 +217,14 @@ Java 写币行 `curve_closed_at` / `swept_quote` / `swept_token`，`status = GRA
 
 ### V4PoolGraduated（V4GraduationReceiver）
 
-Java 写币行 `pool_created_at` / `pool_id` / `pool_position_id` / `price_quote` / `quote_reserve`。
+Java 写币行 `pool_created_at` / `pool_id` / `price_quote` / `liquidity_quote`。不存池的其它信息。
 
 | 字段 | 含义与说明 |
 |---|---|
 | `args.token` | 【原始】【必须】发射币。定位币行 |
 | `args.curve` | 【原始】【可选】曲线地址。存档 |
 | `args.poolId` | 【原始】【必须】Uniswap v4 poolId。前端拼 Uniswap 链接；与 Swap 对照 |
-| `args.positionId` | 【原始】【必须】锁定的 LP NFT id。存档、前端链接 |
+| `args.positionId` | 【原始】【可选】锁定的 LP NFT id。存档 |
 | `args.sqrtPriceX96` | 【原始】【可选】池初始价原值。存档 |
 | `args.liquidity` | 【原始】【可选】初始流动性原值。存档 |
 | `args.quoteAmount` | 【原始】【必须】迁入池的配对资产。存档 |
@@ -230,17 +232,17 @@ Java 写币行 `pool_created_at` / `pool_id` / `pool_position_id` / `price_quote
 | `args.tokenDust` | 【原始】【可选】本币尾数。存档 |
 | `args.quoteDust` | 【原始】【可选】配对资产尾数。存档 |
 | `derived.priceQuote` | 【解析】【必须】池初始价，一枚本币值多少配对资产，由 `sqrtPriceX96` 按 currency0 / 1 方向与两侧精度换算。建池到第一笔 Swap 之间的币价 |
-| `derived.quoteReserve` | 【解析】【必须】建池时池里配对资产那一侧的数量。建池到第一笔 Swap 之间的 `liquidity_usd` |
+| `derived.liquidityQuote` | 【解析】【必须】建池时池的流动性，以配对资产计。建池到第一笔 Swap 之间的 `liquidity_usd` |
 
 ### PoolRegistered（GraduatedPoolHook）
 
-Java 写币行 `pool_id` / `pool_quote_asset`（与 V4PoolGraduated 谁先到谁写）。
+Java 写币行 `pool_id`（与 V4PoolGraduated 谁先到谁写）。
 
 | 字段 | 含义与说明 |
 |---|---|
 | `args.poolId` | 【原始】【必须】Uniswap v4 poolId。与 V4PoolGraduated 互为兜底 |
 | `args.token` | 【原始】【必须】发射币。定位币行 |
-| `args.quoteAsset` | 【原始】【必须】池的计价资产。核对 = 发币时的 quoteAsset |
+| `args.quoteAsset` | 【原始】【可选】池的计价资产。存档 |
 
 ### LaunchGraduationRescued（LaunchFactory）
 
@@ -255,7 +257,7 @@ Java 写币行 `rescued_at`，`status = RESCUED`。
 
 ### Swap（PoolManager，只发我们的池）
 
-Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、池侧储备、最近成交。
+Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。
 
 | 字段 | 含义与说明 |
 |---|---|
@@ -276,7 +278,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `derived.hookFee` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.fee`。费用展示 |
 | `derived.creatorTax` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.creatorTax`。费用展示 |
 | `derived.feeCurrency` | 【解析】【必须】费用按哪个币收，可能是本币也可能是配对资产。费用展示时换算 |
-| `derived.quoteReserve` | 【解析】【必须】成交后池里配对资产那一侧的数量，最小单位。`liquidity_usd = quoteReserve × 配对资产价 × 2`，与曲线阶段同一公式 |
+| `derived.liquidityQuote` | 【解析】【必须】成交后池的流动性，以配对资产计：两侧按池价折成配对资产之和。`liquidity_usd = liquidityQuote × 配对资产价` |
 
 ```json
 "payload": {
@@ -286,7 +288,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
             "amount1": "18000000000000000000000", "sqrtPriceX96": "…", "liquidity": "…", "tick": "-201234", "fee": "3000" },
   "derived": { "token": "0x3d7e…4cdd", "side": "BUY", "trader": "0x944…",
                "tokenAmount": "18000000000000000000000", "quoteAmount": "2500000000000000",
-               "priceQuote": "0.000000000000138", "hookFee": "24999843", "creatorTax": "0",
+               "priceQuote": "0.000000000000138", "liquidityQuote": "9000000000000000000", "hookFee": "24999843", "creatorTax": "0",
                "feeCurrency": "0x0000000000000000000000000000000000000000" }
 }
 ```
