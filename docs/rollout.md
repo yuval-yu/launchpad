@@ -1,33 +1,42 @@
 ---
-title: 10 · 按「拿到 ABI」切分，第一周的活现在就能开
+title: 10 · 五个阶段、待拍板、风险
 ---
 
-# 按「拿到 ABI」切分，第一周的活现在就能开
+# 五个阶段、待拍板、风险
 
 ## 落地顺序
 
-1. **把事件清单和八个问题发出去，同时在 dev 起一套 Envio** [第 9 页](/events)今天就能发。并行用 `envio init` 起一个最小 indexer，docker 起 indexer + Postgres + Hasura，对主网索引现有 PONS 工厂的发币事件（HyperSync）、对测试网用 QuickNode RPC 同上。验 `contractRegister` 同区块首买、`getWhere` 同区块可见性（SnipeTaxCharged → CurveBuy、Swap → HookFeeCollected → Transfer 三组同 tx 配对）、`@index` 建出来的索引、回填速度、Effect 读 MySQL、Hasura 游标查询。**这步不需要我们的 ABI**。
-2. **线一先跑起来** 从备份分支挑回币安价源，按 profile 定 dev / test 的做法；新接 Robinhood 股票 API 与 multiplier 同步；`launchpad_coin_price` 补分钟行 / 小时行；admin 名单加 `isStable` / `priceSource`。它要先于索引层有数据，否则回填出来的 USD 全是 null。
-3. **写 Envio 的 schema 与 handler** ABI 到了之后填事件、生成类型，实现[第 4 页](/indexer)的全部 handler 与两个 Effect；主网 / 测试网各配一份 `start_block`。
-4. **Token 同步器与线二** 拷 `Token`，线二接管绑定、发行者用户、算现价类 USD。能在业务库里排出一个市场列表就算通。
-5. **线三、线四与读接口换源** 详情、K 线、成交、持有者、余额、Activity 改查 Envio 加 Redis 缓存；持仓页与历史持仓两个新接口读 `Position` 与卖出 `Trade`；协议数据页改读 `ProtocolDay`。**前端零改动是硬要求**，换源期间任何响应结构都不许变；`publicName` / `tags` 变 null、上报接口下线要提前告知前端。
-6. **补齐毕业、池内成交、资产页两份余额** 已毕业分区、毕业后行情依赖前两条；资产页平台币余额查 Envio 的 `Balance`，配对资产余额改成 RPC `balanceOf`，Blockscout 下线。池内成交是我们现在完全没有的能力。
-7. **对链对账** 没有现成实现可比对，对账对象是链本身：每个曲线币 `eth_getBalance(curve)` 对 Σ 买入 − Σ 卖出 − Σ 费用清扫，容差 1%；抽样地址 `balanceOf` 对 `Balance`。**对账脚本切完之后留着**。
-8. **test 与 prod 各起一套 Envio，删旧代码与旧表** Postgres 按生产标准配备份与监控。**CMC 整个下线**：客户端、缓存、额度监控、key；Blockscout 客户端；Kafka 消费者与 `pons.event`；`ReceiptDecoder`；[第 7 页](/tables)列的四张表；整点快照；上报写路径与状态机。没上线过、无旧数据，不留兼容分支。**admin Redis 的运营名单保留**，加 `isStable` / `priceSource`。
+契约先行，删除最后；每个阶段能单独编译、部署、验收。P1 与 P2 可并行。
+
+1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、十种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
+2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引、月分区；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：PONS 事件在改造后的管线上跑通 dev；1 万条 Transfer 的消费耗时有数。
+3. **P2 新来源 + 事实表 / 派生表（与 CMC 并存）。** 新 topic、`LaunchSource.STORYFUN`、`service/chain/storyfun/` 十个 handler；建八张新表；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
+4. **P3 读侧切换。** K 线 / 成交 / 持有者 / 资产页 / 协议数据改读自家表；两个新接口；币行行情列改由 handler + 线二 / 线三维护；对比新旧响应。**出口**：test 环境前端全页面走通，响应与 DTO 契约一致。
+5. **P4 删除与收尾。** [第 5 页](/java)删除清单；三张旧表 DROP；dev / test 库重建；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / QuickNode / Blockscout 字样。
+
+## 待拍板
+
+| 编号 | 问题 | 建议 |
+|---|---|---|
+| Q1 | **配对资产余额**（`/assets/balances/quote-tokens`：ETH / USDG / 股票币）从哪来。发射台事件覆盖不到 | 接口下线，前端用钱包 SDK 直接读链；否则只能保留一处 RPC |
+| Q2 | **0x gasless 透传**去留。自研平台前端还走不走 0x | 不走整包删 |
+| Q3 | **`liquidity_usd`** 前端是否真展示 | 不展示就删列，不发 ModifyLiquidity |
+| Q4 | **确认深度 N** | 由链的最终性定，Robinhood 几乎不重组，取小值 |
+| Q5 | **RESCUED 币怎么展示** | 数据先收；隐藏 / 标「已终止」/ 留在已毕业分区待产品定 |
+| Q6 | **历史数据**：dev / test 上 PONS 时代的币和活动行 | 清空重建，自研合约是新地址 |
+| Q7 | **配对资产价源**具体选哪家 | 见[第 6 页](/pricing)候选 |
 
 ## 风险
 
 | 风险 | 后果 | 怎么办 |
 |---|---|---|
-| **自建 Envio 不可用** | 列表停更但可用；详情页明细类缓存过期后变空并标 `stale` | 三个容器接现有监控；「已处理区块落后链头」告警；Redis 缓存兜住短抖动。它是我们自己的进程，恢复手段在自己手里 |
-| **Postgres 运维** | 磁盘、备份、连接数出问题拖垮索引 | 按生产标准管，和 MySQL 同等对待；实体表增长可预估：成交与转账是主要增量 |
-| **测试网只能走 RPC** | 同步慢、重组检测有漏检的边角、依赖 QuickNode 限流 | 测试网数据量小，可接受；W1 实测速度；生产是主网，不受影响 |
-| **成本法进了索引层** | 改成先进先出、改粉尘处理，要重跑索引 | 移动平均是业内通行做法，改的概率低；重跑分钟级 |
-| **取价规则进了索引层** | 换价源、改「缺价怎么办」要重跑索引 | Effect 缓存键是（资产，分钟），价格表本身不变时重跑全命中缓存；HyperSync 上重跑是分钟级 |
-| **线一停机造成 USD 空洞** | 那段时间的成交与桶 USD 为 null，事后不补 | 线一是最简单的一个 job，加监控 |
-| **改 handler 要重跑** | 重新部署并等 Envio 追上 | handler 只放事实、纯加减、固定取价规则；口径全在 Java；事件签名定了就少动 |
-| **外部价源不可用** | 对应那类配对资产的币 USD 字段为 null | 与现状一致，接受。币安与 Robinhood 各管一类资产 |
-| **链上注册了新配对资产，运营名单还没配价源** | 用它发的币照常收录、金额按配对资产显示，但 USD 全空，市值排序垫底 | 线二对比 `QuoteAssetConfig` 与运营名单，缺价源就告警；补上后下一分钟起有价，历史成交的 USD 不补 |
-| **股票代币盘后报价行为不明** | 周末 bid / ask 冻结或缺失 | 上线前观察一个周末；`isTradingHalt` 给 null；必要时改用链上 Chainlink 喂价 |
-| **合约升级不通知** | 新签名 handler 收不到，Envio 不报错，新币悄悄不入库 | 「工厂最后一次发币时间」告警 + 对账脚本。仍要约定通知 |
-| **QuickNode 抖动** | 资产页配对资产那一份拿不到 | 30 秒缓存、失败给旧值、再没有就该份降级；平台币那一份来自 Envio 不受影响 |
+| **Envio 停了** | 消息停止，列表与详情停在最后一条 | 单实例接监控；「已处理区块落后链头」告警；恢复后从断点续，不丢事件 |
+| **Envio 重组回滚不撤消息** | 孤块上的事件已落库 | 确认深度后才发（Q4）；Java 的 `removed=true` 分支保留 |
+| **消息重复 / 乱序** | 派生表重复计数；成交先于发币到达 | 事实行首插成功才推进派生表；乱序进 FAILED 由 retry job 一分钟后重投 |
+| **写审计表失败** | 消息丢失、无法回放 | 死信 topic + 回灌接口 |
+| **审计表增长** | 磁盘 | 月分区、90 天后清空 raw_message、Envio 可重扫重投 |
+| **线一停机造成 USD 空洞** | 那段时间的成交 USD 为 null，事后不补 | 线一是最简单的 job，加监控 |
+| **外部价源不可用** | 对应那类配对资产的币 USD 字段为 null | 与现状一致，接受；每类一个源 |
+| **链上注册了新配对资产，运营名单还没配价源** | 币照常收录、金额按配对资产显示，USD 全空 | 线二对比 `launchpad_quote_asset` 与运营名单，缺价源就告警 |
+| **合约升级不通知** | 新签名 Envio 收不到、不报错，新币悄悄不入库 | 「工厂最后一次发币时间」告警；对账脚本；订阅 Deployer 的 `ImplementationUpdated` 当告警源 |
+| **测试网只能走 RPC** | 同步慢、依赖节点限流 | 测试网数据量小，可接受 |

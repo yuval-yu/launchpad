@@ -1,35 +1,118 @@
 ---
-title: 3 · HyperIndex 跑 handler，HyperSync 供数据，Hasura 出接口
+title: 3 · Envio 只做扫链：订阅、解码、补字段、发 Kafka
 ---
 
-# HyperIndex 跑 handler，HyperSync 供数据，Hasura 出接口
+# Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
-只讲和我们相关的部分。一句话：**我们写一份 `config.yaml`、一份 `schema.graphql` 和一组 TypeScript handler， indexer 从 HyperSync 拉区块、跑 handler、把实体写进 Postgres，再通过 Hasura 给出 GraphQL**。三个进程都在我们自己的 VPC 里。
+一句话：**我们写一份 `config.yaml`、一份最小的 `schema.graphql` 和一组 TypeScript handler，indexer 从 HyperSync / RPC 拉区块、跑 handler、把每条事件变成一条 Kafka 消息。** Postgres 只存 Envio 自己的同步状态和一份最小内部状态，没有 Hasura，Java 不读它。
+
+同事已起的仓库 `amazing-socrates/envio`（测试网、纯 RPC、三个 handler、`publishKafka` effect 占位）就是这个形状的起点，往下填即可。
 
 ## 三个组件
 
-| 组件 | 是什么 | 对我们意味着 |
-|---|---|---|
-| **HyperSync** | Envio 自家的区块数据层，按合约地址和事件签名直接取日志，比 RPC 快一到两个数量级，无限速 | **Robinhood 主网 4663 在支持列表里**；测试网 46630 不在，测试网走 RPC。这是唯一仍在 Envio 那边的东西 |
-| **HyperIndex** | 索引框架：配置声明链、合约、事件，schema 声明实体，handler 用 TypeScript 写；自动处理动态合约、重组回滚、批量读写 | 我们写这三样，indexer 容器由我们跑 |
-| **Hasura** | 实体表上的 GraphQL 引擎：`where`、`order_by`、`limit`、关系查询、聚合 | Java 读时直查它；自建所以聚合可用，也可以给 Postgres 开只读账号 |
+| 组件 | 对我们意味着 |
+|---|---|
+| **HyperSync** | 主网 4663 在支持列表里，按合约地址和事件签名直接取日志；测试网 46630 不在，走 RPC |
+| **HyperIndex** | 声明链、合约、事件；handler 用 TypeScript 写；自动处理动态合约、批量读写、重组回滚 |
+| **Postgres** | Envio 自用：同步游标、`raw_events`、最小内部状态。**不对外** |
 
-## 我们会用到的能力
+## config.yaml
 
-- **动态合约。** `contractRegister` 在发币事件里把 curve 和 token 地址加进监听，**同一区块内该合约更早的事件也会补上**。发币 tx 里的首买认得出来
-- **重组回滚。** 默认开启，实体自动回退到规范链状态；`max_reorg_depth` 默认 200 块。用 HyperSync 时检测有保证，纯 RPC 数据源有漏检的边角
-- **数据源组合。** 一条链可以配多个数据源，HyperSync 主、RPC `fallback`，主源 20 秒没新块自动切换；也可以纯 RPC，分 `sync` 与 `realtime` 两类端点，有批量大小与退避参数
-- **预加载。** V3 起自动开启：同一批事件要读的实体先一次取回；**handler 会被执行两遍**，第一遍只收集读取，所以外部调用必须走 Effect API，裸调会跑两次
-- **Effect API。** handler 里做外部调用的正规入口：`createEffect` 声明输入输出，自带批处理、限速、结果缓存（`cache: true` 落库，重跑直接命中）。**结果不随重组回滚**，所以只用来取「输入定了输出就定」的东西：某资产某分钟的价、某 ERC20 的 `symbol()`。metadata 在发币事件里，不用取 URI
-- **字段选择。** `field_selection` 声明要交易的 `from` 和 `hash`，事件里就带 `txFrom`
-- **系统表。** `raw_events` 可开可关，开着就是原始日志审计；`dynamic_contracts` 记注册过的地址；链同步状态表给出已处理到的区块
+```yaml
+chains:
+  - id: 4663                          # Robinhood 主网
+    start_block: <工厂部署区块>
+    hypersync: https://4663.hypersync.xyz
+    rpc:
+      - url: <主网 RPC>
+        for: fallback
+  - id: 46630                         # 测试网：纯 RPC
+    start_block: <工厂部署区块>
+    rpc:
+      - url: <测试网 RPC>
+        for: sync
+      - url: <测试网 wss>
+        for: realtime
 
-## 自建要跑什么
+rollback_on_reorg: true
 
-| 进程 | 说明 | 运维要点 |
-|---|---|---|
-| **indexer** | 官方镜像，装我们的 config / schema / handler；连 HyperSync 或 RPC，写 Postgres | 单实例，不要起两个；有 Prometheus 指标端点，接现有监控；**能访问 MySQL 或 Redis 读价格历史** |
-| **Postgres** | 实体表由 Envio 按 schema 生成，另有回滚用的历史表与系统表 | 按生产标准管：备份、连接数、磁盘。Java 只读账号只查实体表 |
-| **Hasura** | 官方镜像，指向同一个 Postgres，Envio 启动时自动追踪实体表 | 只在内网暴露，admin secret 收好；Java 走内网调它 |
+contracts:                              # 完整清单见第 9 页
+  - name: LaunchFactory         # 固定地址。TokenLaunched / LaunchSwept / LaunchGraduationRescued
+  - name: BondingCurve          # TokenLaunched 时 contractRegister。CurveBuy / CurveSell / SnipeTaxCharged
+  - name: LaunchToken           # TokenLaunched 时 contractRegister。Transfer
+  - name: GraduatedPoolHook     # 固定地址。PoolRegistered / HookFeeCollected
+  - name: V4GraduationReceiver  # 固定地址。V4PoolGraduated
+  - name: PoolManager           # 固定地址，Uniswap v4 核心。Swap（按 poolId 过滤）
+  - name: QuoteAssetRegistry    # 固定地址。QuoteAssetConfigured
+  # 费用 / 回购 / 治理类：订阅、空 handler、只进 raw_events
 
-官方给 docker 样例并注明「不覆盖全部基础设施需求」，意思是 Postgres 要自己管。dev / test / prod 各一套，dev 与 test 可以共用 Postgres 实例分库。
+field_selection:
+  transaction_fields: [hash, from]
+raw_events: true
+```
+
+::: warning 两个要点
+**PoolManager 上所有池的 Swap 都会进 handler。** 单例合约只能按地址订阅，handler 第一行按 `poolId` 查内部状态，查不到就 return，不发消息。
+
+**配对资产（WETH / USDG / 股票代币）的 Transfer 不订阅。** 只认发射币。
+:::
+
+## 最小内部状态
+
+只为补字段，不是业务实体，Java 不读。
+
+```graphql
+type Token @entity {                # 一个发射币一行
+  id: ID!                         # token 地址
+  curve: String! @index           # 曲线地址；曲线事件按 srcAddress 反查
+  poolId: String @index           # PoolRegistered 后才有；Swap 按它反查
+  quoteAsset: String!             # 配对资产地址，零地址 = 原生 ETH
+  quoteDecimals: Int!             # 来自 QuoteAssetConfig
+  initialVirtualQuoteReserve: BigInt!
+  graduationQuoteThreshold: BigInt!
+  trackedNetQuote: BigInt!        # 买入 += netQuoteIn，卖出 -= grossQuoteOut；曲线关闭后冻结
+  trackedTokens: BigInt!          # 初值 TOTAL_SUPPLY；买入 -= tokensOut，卖出 += tokensIn
+  pendingSnipeTax: BigInt!        # 同 tx SnipeTaxCharged 先到、CurveBuy 后到的传递位
+}
+
+type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quoteConfigHash 取
+  id: ID!
+  asset: String!
+  decimals: Int!
+  initialVirtualQuoteReserve: BigInt!
+  graduationQuoteThreshold: BigInt!
+}
+```
+
+## handler 做什么
+
+每个 handler 三步：解码 → 补 `derived` → 调 `publish` effect。不做任何口径。
+
+- **QuoteAssetConfigured**：upsert `QuoteAssetConfig`；发消息
+- **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项与 `totalSupply`（`LaunchDefaults.TOTAL_SUPPLY`）；发消息
+- **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
+- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、trader、snipeTax（取走并清零）、quoteReserve、tokenReserve、priceQuote；发消息
+- **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
+- **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、trader、tokenAmount、quoteAmount、priceQuote；**fee / creatorTax 由同 tx 紧随其后的 HookFeeCollected 补**，所以 Swap 的消息在 HookFeeCollected handler 里发（同 tx、同区块，Envio 顺序执行）
+- **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax，发消息
+- **Transfer**：原样发消息，`derived` 为空。**trader 穿透用的就是它**：CurveBuy / Swap 的 handler 看同 tx 里本币的 Transfer 净流量（Envio 在一个区块内按 logIndex 顺序执行，Transfer 在 CurveBuy 之前已处理；池内 Transfer 在 Swap 之后，所以 Swap 的 trader 在 Transfer handler 里回填后再发）
+- **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`
+
+::: info 同 tx 配对的三组
+`SnipeTaxCharged → CurveBuy`、`Swap → Transfer → HookFeeCollected`、`LaunchSwept ↔ CurveCompleted`。Envio 在同一区块内按 logIndex 顺序跑 handler，用 `Token` 上的传递位或按 `txHash` 暂存就能配对；具体先后以 W1 真实 tx 为准。
+:::
+
+## 发送：确认深度、顺序、至少一次
+
+- **确认深度。** Envio 的重组回滚只回滚它的实体，**不会撤回已发的消息**。所以 `publish` 只在区块落后链头 ≥ N 块后才发（N 由链的最终性定，Robinhood 几乎不重组，取小值）。Java 侧 `removed=true` 分支保留但不会走到
+- **分区键 = token 地址。** 发币、曲线、毕业、Transfer、Swap 都能关联到 token；同币事件严格有序，异币并行
+- **至少一次。** producer `acks=all`、重试开；Java 按 `eventId` 去重。**不做 exactly-once**
+- **发送失败。** effect 抛异常，Envio 会重跑这一批；不吞
+- **回填与重放。** 首次上线从 `start_block` 全量扫一遍并全部发出；以后要重放某段，改 `start_block` 重跑或用官方的 `envio start --restart`，Java 靠 eventId 去重
+
+## 运维
+
+- 单实例，不要起两个（会重复发消息，虽然 Java 去重）
+- Prometheus 指标接现有监控；「已处理区块落后链头」告警
+- `config.yaml` 里的 RPC key 用环境变量，仓库里现在有一把 Alchemy key 明文，要撤掉
+- dev / test / prod 各一套；Postgres 只是 Envio 自用，容量按 `raw_events` 增长估

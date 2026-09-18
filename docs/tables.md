@@ -1,130 +1,256 @@
 ---
-title: 7 · Envio 九个实体，MySQL 三张表
+title: 7 · 十二张表：审计、事实、派生、口径
 ---
 
-# Envio 九个实体，MySQL 三张表
+# 十二张表：审计、事实、派生、口径
 
-Envio 的 Postgres 由它按 `schema.graphql` 生成，实体见[第 4 页](/indexer)；Java 读路径走 Hasura，批量聚合可用只读账号。 MySQL 侧全部在 `mini_drama` 库、`launchpad_` 前缀，金额最小单位 `DECIMAL(65,0)`，地址小写 `char(42)`。
+全部在 `mini_drama` 库、`launchpad_` 前缀。约定不变：金额最小单位 `DECIMAL(65,0)`、价格 `DECIMAL(36,18)`、USD `DECIMAL(20,8)`、地址小写 `char(42)`、哈希 `char(66)`、时间毫秒 UTC `BIGINT`。migration 仍只有一个 `V1__launchpad_schema.sql`，直接改，dev / test 库重建。
 
-## MySQL
+四类表：**审计**（消息原文与状态）、**事实**（一条日志一行，唯一键幂等）、**派生**（只由事实行首次插入成功推进）、**口径**（定时线写回币行）。
+
+## 审计
 
 ```text
-launchpad_token                                # 现表，改列。只有市场列表与搜索读它；一个发射币一行，唯一键 (chain_id, token_address)
-
-  # ── 链上列：Token 同步器写，来自 Envio 的 Token 实体，整行覆盖 ──
-  chain_id               BIGINT                # 链 id
-  token_address          CHAR(42)              # 代币地址，小写
-  curve_address          CHAR(42)              # 曲线合约地址
-  deployer_address       CHAR(42)              # 发行者地址
-  pair_token_address     CHAR(42)              # 配对资产地址
-  pair_asset             VARCHAR(16)           # 配对资产代号，来自 Envio 读的 symbol() 或运营名单
-  pair_token_decimals    TINYINT               # 配对资产精度，来自链上 QuoteAssetRegistry 的配置；不依赖运营名单
-  curve_fee_bps          SMALLINT UNSIGNED     # 基础手续费 BPS，发币时快照
-  creator_fee_recipient  CHAR(42)              # 当前创作者费收款人，可变
-  buyback_enabled        TINYINT(1)            # 当前回购开关，可变
-  graduation_threshold   DECIMAL(65,0)         # 毕业阈值，最小单位
-  creator_tax_bps        SMALLINT UNSIGNED     # 创作者税 BPS
-  total_supply           DECIMAL(65,0)         # 总供应；流通量恒等于它
-  locked_supply          DECIMAL(65,0)         # 锁定供应，只存不用
-  token_decimals         TINYINT               # 代币精度
-  name                   VARCHAR(128)          # 币名，metadata 原文
-  symbol                 VARCHAR(32)           # 代号
-  tagline                VARCHAR(512)          # 一句话简介
-  image_uri              VARCHAR(512)          # 币图 URI，不清洗
-  social_website         VARCHAR(255)          # 普通官网链接，原样返回；storyFun 为空时才拿它试绑定
-  social_twitter         VARCHAR(255)          # 社交链接
-  social_telegram        VARCHAR(255)          # 社交链接
-  social_discord         VARCHAR(255)          # 社交链接
-  social_farcaster       VARCHAR(255)          # 社交链接
-  social_story_fun       VARCHAR(255)          # Story.Fun 主页 / 发射页链接；叙事绑定解析它
-  launch_tx_hash         CHAR(66)              # 发币交易哈希
-  launch_block_number    BIGINT                # 发币区块号
-  launched_at            BIGINT                # 发币时间，毫秒 UTC；NEWEST / OLDEST 排序键、币龄窗口过滤
-  tx_from                CHAR(42)              # 发币交易的 from
-  curve_closed_at        BIGINT                # 曲线关闭时间，毫秒；空 = 未毕业
-  rescued_at             BIGINT                # 治理释放储备的时间；终态，展示口径待产品定
-  pool_position_id       DECIMAL(65,0)         # 锁定的 PositionManager NFT id
-  pool_created_at        BIGINT                # 池建好时间，毫秒
-  pool_id                CHAR(66)              # Uniswap v4 poolId
-  pool_quote_token       CHAR(42)              # 池的计价资产地址
-  pool_liquidity         DECIMAL(65,0)         # 池内当前流动性
-  net_quote_raised       DECIMAL(65,0)         # 曲线净募集；卡片 quoteRaised 读它
-  cum_volume_curve       DECIMAL(65,0)         # 曲线累计成交量，配对资产最小单位
-  cum_volume_pool        DECIMAL(65,0)         # 池内累计成交量
-  trade_count            INT                   # 累计成交笔数
-  last_price_quote       DECIMAL(36,18)        # 最后成交价，配对资产计
-  last_trade_at          BIGINT                # 最后成交时间，毫秒；LAST_TRADE 排序键
-  positive_balance_count INT                   # 正余额地址数，含合约
-  updated_at_block       BIGINT                # Envio 的 updatedAtBlock，同步游标依据
-
-  # ── 口径列：线二写，每分钟 ──
-  deployer_user_id       BIGINT                # 反查到的平台用户 id，可空；空 = 卡片只显示地址
-  price_source           VARCHAR(16)           # 该币配对资产的价源：STABLE / BINANCE / ROBINHOOD / NONE；NONE = 名单外，USD 列全空
-  status                 VARCHAR(16)           # CURVE / GRADUATED，由 curve_closed_at 推出
-  graduated_at           BIGINT                # = curve_closed_at，卡片 graduatedAt
-  price_usd              DECIMAL(36,18)        # last_price_quote × 配对资产现价
-  market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 排序键、已毕业分区排序键
-  liquidity_usd          DECIMAL(20,8)         # 曲线阶段：净募集折美元；毕业后：池储备折美元
-  holder_count           BIGINT                # 正余额地址数剔除 curve / PoolManager / 锁仓合约
-  deployer_holding_pct   DECIMAL(9,4)          # 发行者余额 ÷ 总供应，百分比数；> 20 出警示徽标
-  og_key                 VARCHAR(160)          # 同名同代号分组键，组内 launched_at 最早的为 OG
-
-  # ── 口径列：线三写，每 5 分钟 ──
-  volume_usd_24h         DECIMAL(20,8)         # 严格滚动 24h 成交额；VOLUME 排序键；没成交置 0
-  price_change_24h       DECIMAL(12,4)         # 24h 涨跌，百分比数
-
-  # ── 删除的列 ──
-  market_synced_at                             # CMC 写回时间，不再需要
-  curve_trade_at                               # CMC 刷新的活跃信号，不再需要
-  quote_raised                                 # 被 net_quote_raised 取代
-
-launchpad_coin_price                           # 现表，改为多行历史。线一每分钟写；Envio 的取价 Effect 与 Java 线二都读它
-  id                     BIGINT                # 自增
-  token_address          CHAR(42)              # 配对资产地址；原生币用全零地址
-  symbol                 VARCHAR(16)           # 代号，展示与排查用
-  price_usd              DECIMAL(20,8)         # 一枚该资产的美元价；股票代币已乘 currentMultiplier
-  source                 VARCHAR(32)           # STABLE / BINANCE / ROBINHOOD
-  granularity            VARCHAR(8)            # MINUTE / HOUR；小时行给长窗口用
-  priced_at              BIGINT                # 该行代表的时刻，取整到分钟或小时；Effect 按「≤ 区块时间的最近一行」取
-  created_at             BIGINT                # 写入时间
-                                               # 索引 (token_address, granularity, priced_at)
-
-launchpad_token_content                        # 现表不变。币 ↔ 叙事绑定，线二写；一个币至多一条
-  chain_id               BIGINT                # 链 id
-  token_address          CHAR(42)              # 代币地址；唯一键 (chain_id, token_address)
-  content_type           VARCHAR(8)            # DRAMA / VIDEO
-  content_id             BIGINT                # drama.id 或 drama_episode.id
-  bound_at               BIGINT                # 绑定时间，毫秒
-
-launchpad_sync_cursor                          # 新表，一条链一行
-  chain_id               BIGINT                # 链 id
-  last_block             BIGINT                # Token 同步到的 updatedAtBlock
-  updated_at             BIGINT                # 最后一轮同步时间
+launchpad_chain_event                          # 现表，加列改索引。每条消息一行，唯一键 (launch_source, event_id)；重放源
+  launch_source          VARCHAR(16)           # storyfun
+  event_id               VARCHAR(160)          # v1:{chainId}:{blockHash}:{logIndex}:{removed}
+  event_name             VARCHAR(64)           # ABI 事件名
+  signature              VARCHAR(255)
+  chain_id               BIGINT
+  block_number           BIGINT
+  block_hash             CHAR(66)
+  log_index              INT
+  tx_hash                CHAR(66)
+  tx_from                CHAR(42)              # 新增，备查
+  removed                TINYINT(1)
+  block_time             BIGINT                # 必有值
+  contract_address       CHAR(42)              # payload.address
+  token_address          CHAR(42)              # 新增：derived.token / args.token / Transfer 的 address；按币回放
+  raw_message            LONGTEXT              # PROJECTED 且超过 90 天的行清空
+  status                 VARCHAR(16)           # RECEIVED / PROJECTED / SKIPPED / FAILED
+  attempts               INT
+  error                  TEXT
+  kafka_partition        INT
+  kafka_offset           BIGINT
+  received_at            BIGINT
+  processed_at           BIGINT
+                                               # 索引：uk (launch_source, event_id)；(chain_id, block_number, log_index)；(chain_id, token_address, block_number, log_index)；(status, processed_at)
+                                               # 按 received_at 月分区
 ```
 
-## Envio Postgres（只读）
+## 事实
 
-| 实体 | 谁读 | 怎么读 |
-|---|---|---|
-| `Token` | Token 同步器 | GraphQL，按 `updatedAtBlock` |
-| `Trade` | K 线 M5、成交页签、Activity | GraphQL，按币 / 按 trader，id 游标 |
-| `CandleMinute` / `CandleHour` / `CandleDay` | K 线、线三 | GraphQL；线三也可只读账号 `GROUP BY` |
-| `Balance` | 持有者榜、资产页余额、线二 | GraphQL，按币余额倒序 / 按地址 |
-| `Position` | 持仓页、按币汇总的历史 | GraphQL，按 trader |
-| `QuoteAssetConfig` | 线二（配对资产名单与精度） | GraphQL，几十行 |
-| `ProtocolDay` | 线四 | GraphQL，90 行 |
-| `raw_events`（系统表） | 审计、对账、将来补 handler 的原料 | 取代 `launchpad_chain_event`；退款、费用清扫、配置变更只在这里 |
+```text
+launchpad_quote_asset                          # 新表。QuoteAssetConfigured 投影；配对资产精度 / 阈值 / 初始储备的链上权威
+  chain_id               BIGINT
+  config_hash            CHAR(66)              # 唯一键 (chain_id, config_hash)
+  asset_address          CHAR(42)              # 零地址 = 原生 ETH
+  version                CHAR(66)
+  decimals               TINYINT
+  initial_virtual_quote_reserve DECIMAL(65,0)
+  graduation_quote_threshold    DECIMAL(65,0)
+  target_net_graduation_quote   DECIMAL(65,0)
+  enabled                TINYINT(1)
+  configured_at          BIGINT                # 区块时间
+  created_at / updated_at BIGINT
+                                               # 索引 (chain_id, asset_address)
+
+launchpad_trade                                # 新表，替代 launchpad_activity。一笔成交一行；除 pnl_* 与 trader 外不修改
+  chain_id               BIGINT
+  tx_hash                CHAR(66)
+  log_index              INT                   # 唯一键 (chain_id, tx_hash, log_index)
+  token_address          CHAR(42)
+  venue                  VARCHAR(8)            # CURVE / POOL
+  side                   VARCHAR(4)            # BUY / SELL
+  trader_address         CHAR(42)              # derived.trader；池内解不出为 NULL
+  counterparty_address   CHAR(42)              # CurveBuy.buyer / CurveSell.recipient / Swap.sender
+  tx_from                CHAR(42)
+  pool_id                CHAR(66)              # 池内才有
+  token_amount           DECIMAL(65,0)         # 本币数量，最小单位
+  quote_amount           DECIMAL(65,0)         # 配对资产：买 = grossQuoteIn（实付），卖 = netQuoteOut（实收）
+  net_quote_amount       DECIMAL(65,0)         # 买 = netQuoteIn，卖 = grossQuoteOut（进出定价储备的部分）
+  fee_amount             DECIMAL(65,0)         # 事件 fee 总额；池内 = hookFee
+  creator_tax            DECIMAL(65,0)         # 买按 curveFeeBps:creatorTaxBps 比例拆；卖 = grossQuoteOut × creatorTaxBps / 10000；池内 = HookFeeCollected.creatorTax
+  snipe_tax              DECIMAL(65,0)         # derived.snipeTax，没有为 0
+  quote_amount_whole     DECIMAL(36,18)        # quote_amount 按配对资产精度换算的整枚数
+  avg_price_quote        DECIMAL(36,18)        # 这笔均价：net_quote_amount ÷ token_amount；持仓成本用它
+  price_quote            DECIMAL(36,18)        # 成交后边际价，derived.priceQuote；K 线用它
+  quote_usd_price        DECIMAL(20,8)         # priceAt(配对资产, block_time)；NULL = 缺价
+  amount_usd             DECIMAL(20,8)         # quote_amount_whole × quote_usd_price
+  cost_quote_released    DECIMAL(36,18)        # 卖出才有：释放的成本，配对资产计
+  cost_usd_released      DECIMAL(20,8)
+  pnl_quote              DECIMAL(36,18)        # 卖出才有
+  pnl_usd                DECIMAL(20,8)
+  pnl_pct                DECIMAL(12,4)
+  block_number           BIGINT
+  block_time             BIGINT
+  created_at             BIGINT
+                                               # 索引：uk (chain_id, tx_hash, log_index)；(chain_id, token_address, block_time, id)；(chain_id, trader_address, block_time)；(chain_id, block_time)
+
+launchpad_transfer                             # 新表。发射币 Transfer 台账；唯一的用途是让余额累加幂等
+  chain_id               BIGINT
+  tx_hash                CHAR(66)
+  log_index              INT                   # 唯一键 (chain_id, tx_hash, log_index)
+  token_address          CHAR(42)
+  from_address           CHAR(42)
+  to_address             CHAR(42)
+  value                  DECIMAL(65,0)
+  block_number           BIGINT
+  block_time             BIGINT
+                                               # 索引：uk；(chain_id, token_address, block_number)。按月分区
+```
+
+## 派生
+
+```text
+launchpad_balance                              # 新表。一个（币, 地址）一行；Transfer 首插成功时 from 减 to 加
+  chain_id               BIGINT
+  token_address          CHAR(42)
+  holder_address         CHAR(42)              # 唯一键 (chain_id, token_address, holder_address)
+  balance                DECIMAL(65,0)
+  updated_at             BIGINT
+                                               # 索引：(chain_id, token_address, balance DESC)；(chain_id, holder_address)
+
+launchpad_position                             # 新表。一个（地址, 币）一行，永不关闭；移动平均成本
+  chain_id               BIGINT
+  token_address          CHAR(42)
+  trader_address         CHAR(42)              # 唯一键 (chain_id, trader_address, token_address)
+  qty_traded             DECIMAL(65,0)         # 买入量 − 卖出量，只算成交
+  cost_quote             DECIMAL(36,18)        # 剩余成本，配对资产计
+  cost_usd               DECIMAL(20,8)
+  bought_qty / sold_qty  DECIMAL(65,0)         # 累计
+  bought_quote / sold_quote DECIMAL(36,18)
+  bought_usd / sold_usd  DECIMAL(20,8)
+  realized_pnl_quote     DECIMAL(36,18)
+  realized_pnl_usd       DECIMAL(20,8)
+  buy_count / sell_count INT
+  first_trade_at / last_trade_at BIGINT
+                                               # 索引：(chain_id, trader_address, last_trade_at DESC)
+
+launchpad_kline_minute                         # 新表。只有有成交的分钟才有行
+  chain_id               BIGINT
+  token_address          CHAR(42)
+  period_start           BIGINT                # 整分钟，毫秒；唯一键 (chain_id, token_address, period_start)
+  open / high / low / close DECIMAL(36,18)     # 以配对资产计，取成交后价 price_quote
+  open_usd / high_usd / low_usd / close_usd DECIMAL(20,8)   # 逐笔按 quote_usd_price 折
+  volume_quote_curve     DECIMAL(65,0)         # 曲线成交量
+  volume_quote_pool      DECIMAL(65,0)         # 池内成交量；分开存，「含不含 DEX」在读时定
+  volume_usd_curve       DECIMAL(20,8)
+  volume_usd_pool        DECIMAL(20,8)
+  trade_count            INT
+                                               # 索引：uk；(chain_id, period_start)
+
+launchpad_kline_day                            # 新表。字段与分钟桶相同，period_start 取整 UTC 日；ALL 档超过 30 天读它
+  …
+
+launchpad_protocol_day                         # 新表。UTC 日 × 配对资产一行；协议数据页
+  chain_id               BIGINT
+  day_index              INT                   # floor(区块时间 / 86400)
+  pair_token_address     CHAR(42)              # 唯一键 (chain_id, day_index, pair_token_address)
+  volume_quote_curve / volume_quote_pool DECIMAL(65,0)
+  volume_usd_curve / volume_usd_pool     DECIMAL(20,8)
+  trade_count            INT
+```
+
+## 口径
+
+```text
+launchpad_token                                # 现表，改列。一个发射币一行，唯一键 (chain_id, token_address)；列表与搜索只读它
+
+  # ── 链上列：TokenLaunched / 毕业 / 成交 handler 写 ──
+  launch_source          VARCHAR(16)           # storyfun
+  chain_id               BIGINT
+  token_address          CHAR(42)
+  curve_address          CHAR(42)
+  deployer_address       CHAR(42)              # TokenLaunched.creator
+  tx_from                CHAR(42)
+  pair_token_address     CHAR(42)              # quoteAsset，零地址 = 原生 ETH
+  pair_asset             VARCHAR(16)           # 代号：运营名单按地址补；名单外为 NULL，不影响收录
+  pair_token_decimals    TINYINT               # derived.quoteDecimals，链上权威
+  quote_config_hash      CHAR(66)
+  launch_config_id       INT
+  curve_fee_bps          SMALLINT UNSIGNED
+  creator_tax_bps        SMALLINT UNSIGNED
+  tick_spacing           INT
+  creator_fee_recipient  CHAR(42)              # 发币时的值，不追更新
+  buyback_enabled        TINYINT(1)
+  initial_virtual_quote_reserve DECIMAL(65,0)
+  graduation_threshold   DECIMAL(65,0)
+  total_supply           DECIMAL(65,0)         # 初值 1e9 × 1e18；销毁时减
+  token_decimals         TINYINT               # 恒 18
+  name / symbol / tagline / image_uri          # metadata 原文
+  social_website / social_twitter / social_telegram / social_discord / social_farcaster / social_story_fun
+  launch_tx_hash         CHAR(66)
+  launch_block_number    BIGINT
+  launch_log_index       INT
+  launched_at            BIGINT                # 发币区块时间；NEWEST / OLDEST 排序键
+  curve_closed_at        BIGINT                # LaunchSwept
+  pool_created_at        BIGINT                # V4PoolGraduated
+  rescued_at             BIGINT                # LaunchGraduationRescued
+  pool_id                CHAR(66)
+  pool_quote_token       CHAR(42)
+  pool_position_id       DECIMAL(65,0)
+  pool_liquidity         DECIMAL(65,0)
+  pool_quote / pool_token DECIMAL(65,0)        # LaunchSwept 交给毕业流程的量
+  quote_reserve          DECIMAL(65,0)         # derived.quoteReserve；曲线净募集，毕业进度分子；卡片 quoteRaised 读它
+  token_reserve          DECIMAL(65,0)
+  price_quote            DECIMAL(36,18)        # 最近一笔成交后价，配对资产计
+  last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
+  trade_count            INT
+  cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)
+  holder_count           BIGINT                # Transfer handler 维护：余额 > 0 的地址数，含合约；读时剔曲线 / PoolManager
+
+  # ── 口径列：线二写（每分钟） ──
+  status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
+  graduated_at           BIGINT                # = curve_closed_at
+  deployer_user_id       BIGINT                # 可空；空 = 卡片只显示地址
+  og_key                 VARCHAR(160)
+  price_usd              DECIMAL(36,18)        # price_quote × 配对资产现价
+  market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
+  liquidity_usd          DECIMAL(20,8)         # 曲线：quote_reserve 折美元 × 2；毕业后待定
+  deployer_holding_pct   DECIMAL(9,4)          # balance(deployer) ÷ total_supply
+
+  # ── 口径列：线三写（每分钟） ──
+  volume_usd_24h         DECIMAL(20,8)         # 滚动 24h Σ amount_usd；VOLUME 排序键；没成交置 0
+  price_change_24h       DECIMAL(12,4)
+
+  # ── 删除的列 ──
+  market_synced_at · curve_trade_at · quote_raised（改 quote_reserve）
+                                               # 列表索引 idx_token_list_* 不动；加 (chain_id, curve_address)、(chain_id, pool_id)、(deployer_address)
+
+launchpad_coin_price                           # 现表。线一每分钟追加；priceAt 与线二都读它
+  token_address          CHAR(42)              # 原生币用全零地址
+  symbol                 VARCHAR(16)
+  price_usd              DECIMAL(20,8)         # 股票代币已乘 currentMultiplier
+  source                 VARCHAR(32)           # PriceSource.name()
+  priced_at              BIGINT                # 取整到分钟
+  created_at             BIGINT
+                                               # 索引 (token_address, priced_at)
+
+launchpad_token_content                        # 现表不变。币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
+```
 
 ## 保留与删除
 
-| 表 | 处置 | 说明 |
-|---|---|---|
-| `launchpad_token` | 保留，改列 | CMC 回写列改由线二 / 线三写；加累加列、`price_source`、`pool_quote_token`、`pool_liquidity`、`updated_at_block`；`deployer_user_id` 改为可空；删 `market_synced_at`、`curve_trade_at`、`quote_raised` |
-| `launchpad_token_content`、`launchpad_coin_price` | 保留 | 价格表加 granularity 列并允许多行历史 |
-| `launchpad_sync_cursor` | 新增 | 一行 |
-| `launchpad_chain_event` | 删除 | Kafka 审计表；原始日志审计改看 Envio 的 `raw_events` |
-| `launchpad_ignored_launch` | 删除 | 负向过滤表，全部收录后没有丢弃 |
-| `launchpad_activity` | 删除 | Activity 直接查 Envio 的 `Trade` 按 trader |
-| `launchpad_volume_snapshot` | 删除 | 整点快照机制随 `ProtocolDay` 消失 |
+| 表 | 处置 |
+|---|---|
+| `launchpad_chain_event` | 保留，加 `tx_from` / `token_address`，改索引，按月分区 |
+| `launchpad_token` | 保留，改列（上表） |
+| `launchpad_coin_price` `launchpad_token_content` | 保留 |
+| `launchpad_quote_asset` `launchpad_trade` `launchpad_transfer` `launchpad_balance` `launchpad_position` `launchpad_kline_minute` `launchpad_kline_day` `launchpad_protocol_day` | 新增 |
+| `launchpad_activity` | 删除，被 `launchpad_trade` 取代 |
+| `launchpad_ignored_launch` | 删除，全部收录后没有丢弃 |
+| `launchpad_volume_snapshot` | 删除，被 `launchpad_protocol_day` 取代 |
 
-migration 仍只有一个 `V1__launchpad_schema.sql`，直接改；dev / test 库重建。没上线、无旧数据，不留兼容。
+## 数据量估算
+
+| 表 | 量级 | 增长 |
+|---|---|---|
+| `launchpad_chain_event` | 最大：每笔成交 2～4 条消息（成交 + Transfer） | 按每天 1 万笔成交估一年约 1,100 万行；raw_message 90 天后清空，按月分区 |
+| `launchpad_trade` | 币数 × 平均成交笔数，几十万到几百万行 | 只增不改，普通索引足够 |
+| `launchpad_transfer` | ≈ 成交笔数 × 1.5 | 按月分区；只做幂等判断，可与审计表同期清理 |
+| `launchpad_balance` | 币数 × 持有地址数，十万级 | 只更新 |
+| `launchpad_kline_minute` | ≤ 成交笔数 | 只有有成交的分钟才有行 |
+| `launchpad_position` | 交易过的（地址 × 币）数 | 只更新 |
+| `launchpad_protocol_day` | 天数 × 配对资产数 | 每天几行 |
+| `launchpad_coin_price` | 资产数 × 每分钟一行 | 六个资产一年约 300 万行 |
