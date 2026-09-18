@@ -62,7 +62,7 @@ if (inserted) {                                               // 累加型只走
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| CurveBuy / CurveSell | `launchpad_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |

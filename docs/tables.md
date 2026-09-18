@@ -53,17 +53,14 @@ launchpad_trade                                # 一笔成交一行；只插入�
   token_address          CHAR(42)              # 成交的是哪个发射币
   venue                  VARCHAR(8)            # 在哪成交：CURVE = 曲线阶段，POOL = 毕业后的 Uniswap 池
   side                   VARCHAR(4)            # BUY = 用户拿配对资产买币，SELL = 用户卖币换回配对资产
-  trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址（穿透了路由 / 中继）；池内成交偶尔认不出来，为 NULL
+  trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址：曲线成交 = 收币 / 卖币的地址（消息给了穿透结果就用穿透结果）；池内成交由消息给，偶尔认不出来为 NULL
   counterparty_address   CHAR(42)              # 交易的另一方：买入时是发起调用的地址（经路由时是路由），卖出时是收款地址，池内是路由
   tx_from                CHAR(42)              # 这笔交易链上的发起人；用 gasless 时是中继地址，所以只作备查
   pool_id                CHAR(66)              # 池内成交才有：在哪个 Uniswap 池成交的
   token_amount           DECIMAL(65,0)         # 成交了多少枚发射币（最小单位，未除精度）
   quote_amount           DECIMAL(65,0)         # 用户实际付出（买）或实际收到（卖）的配对资产数量（最小单位），含手续费。**这是成交额**
   net_quote_amount       DECIMAL(65,0)         # 去掉手续费后真正进出曲线储备的配对资产数量（最小单位）；算这笔的均价用它
-  fee_amount             DECIMAL(65,0)         # 这笔一共扣了多少手续费（配对资产最小单位）= 下面三项之和
-  base_fee               DECIMAL(65,0)         # 手续费里归平台的基础费
-  creator_tax            DECIMAL(65,0)         # 手续费里归币的创作者的那部分（创作者税）
-  snipe_tax              DECIMAL(65,0)         # 手续费里的反狙击税：发币后头几秒内抢买要多付的那部分；没有就是 0
+  fee_amount             DECIMAL(65,0)         # 这笔一共扣了多少手续费（配对资产最小单位）；本期不拆分不展示，只存档
   quote_amount_whole     DECIMAL(36,18)        # quote_amount 除以配对资产精度后的「整枚」数，直接可读，比如 1.5 ETH 或 200 USDG
   avg_price_quote        DECIMAL(36,18)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount；持仓成本按它算
   price_quote            DECIMAL(36,18)        # 这笔成交完成后币的最新价：一枚发射币值多少配对资产；K 线的点用它

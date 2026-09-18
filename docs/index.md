@@ -61,7 +61,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <rect x="262" y="160" width="196" height="54" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-brand-1)"/>
 <text x="272" y="179" fill="currentColor" style="font-weight:600">handler</text>
 <text x="272" y="195" style="fill:var(--vp-c-text-2);font-size:11px">解码 · contractRegister</text>
-<text x="272" y="208" style="fill:var(--vp-c-text-2);font-size:11px">补 token / trader / 储备 / 余额 / 费用拆分</text>
+<text x="272" y="208" style="fill:var(--vp-c-text-2);font-size:11px">补 trader / 储备 / 价格 / 流动性 / 余额</text>
 <rect x="262" y="226" width="196" height="40" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
 <text x="272" y="243" fill="currentColor" style="font-weight:600">最小状态</text>
 <text x="272" y="258" style="fill:var(--vp-c-text-2);font-size:11px">curve / poolId → token，两个储备</text>

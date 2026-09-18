@@ -18,13 +18,11 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 | 解析字段 | 出现在 | Java 为什么不能自己来 |
 |---|---|---|
-| `trader` | CurveBuy · CurveSell · Swap | 要看整笔交易里本币 Transfer 的净流量才能穿透路由 / 中继；Java 单看一条消息看不到整笔 tx |
-| `baseFee` `creatorTax` `snipeTax` | CurveBuy · CurveSell | 拆分规则是合约代码（`_splitBuyFees`、卖出税率）；反狙击税在另一条事件里 |
+| `trader` | Swap（必须）· CurveBuy · CurveSell（可选） | 池内 Swap 的 `sender` 是路由，事件里没有用户地址，只有看整笔交易里本币 Transfer 的净流量才能定；曲线事件缺省取 `recipient` / `seller`，只有名义地址是合约（0x Settler 这类）时才需要 Envio 穿透 |
 | `quoteReserve` `tokenReserve` `priceQuote` | CurveBuy · CurveSell | 曲线定价公式和常数是合约的；Java 里不许有合约数学 |
 | `quoteDecimals` `graduationQuoteThreshold` `initialVirtualQuoteReserve` | TokenLaunched | 按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）。这三个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取 |
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
-| `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
 | `liquidityQuote` | CurveBuy · CurveSell · V4PoolGraduated · Swap | 该币此刻的流动性，以配对资产计。曲线阶段 = 曲线里的配对资产 × 2；毕业后 = 池两侧按池价折成配对资产之和（v4 不存余额，要从 L 与 √P 推）。Java 只乘配对资产价得 `liquidity_usd`，不存池子信息 |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
@@ -82,7 +80,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.signature` | 【可选】规范签名。审计用；没有同名重载，不靠它路由 | 缺（可选，不催） |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 | 已有 |
 | `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（配对资产精度、阈值、初始储备）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
-| `payload.derived` | 【按事件】这一条事件算出来的字段，对象：trader、费用拆分、成交后价格与储备、流动性、余额。见各事件 | **缺**（所有事件都没有） |
+| `payload.derived` | 【按事件】这一条事件算出来的字段，对象：trader、成交后价格与储备、流动性、余额。见各事件 | **缺**（所有事件都没有） |
 
 ## 九种事件
 
@@ -100,7 +98,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 | `args.launchConfigId` | 【原始】【必须】发射配置 id。存档 | 已有 |
 | `args.curveFeeBps` | 【原始】【必须】基础手续费 BPS，发币时快照。详情页展示 | 已有 |
 | `args.tickSpacing` | 【原始】【必须】毕业池的 tick spacing。存档 | 已有 |
-| `args.creatorTaxBps` | 【原始】【必须】创作者税 BPS，不可变。详情页展示；核对 derived 的费用拆分 | 已有 |
+| `args.creatorTaxBps` | 【原始】【必须】创作者税 BPS，不可变。详情页展示 | 已有 |
 | `args.creatorFeeRecipient` | 【原始】【必须】发币时的创作者费收款人。存档，不追更新 | 已有 |
 | `args.buybackEnabled` | 【原始】【必须】发币时的回购开关。存档，不追更新 | 已有 |
 | `args.name` | 【原始】【必须】币名。卡片、详情、搜索、OG 键 | 已有 |
@@ -143,12 +141,9 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
 | `args.grossQuoteIn` | 【原始】【必须】用户实付的配对资产，含全部费税、不含退款。**成交额**（`quote_amount`）、USD、24h 量 | 已有 |
 | `args.netQuoteIn` | 【原始】【必须】进入定价储备的部分。均价 `avg_price_quote`，持仓成本用 | 已有 |
 | `args.tokensOut` | 【原始】【必须】用户拿到的本币。成交数量；持仓数量 | 已有 |
-| `args.fee` | 【原始】【必须】费用总额。存档；核对拆分之和 | 已有 |
+| `args.fee` | 【原始】【必须】这笔扣的手续费总额（基础费 + 创作者税 + 反狙击税）。存档，本期不拆分不展示 | 已有 |
 | `token.token` | 【解析】【必须】这条曲线对应的发射币。Java 认币先读它，没有再用 `payload.address`（curve）反查 `curve_address` | 已有 |
-| `derived.trader` | 【解析】【必须】真实交易者。名义地址不是合约就是它；是合约按整笔收据穿透；穿透不出退回名义地址。Activity、持仓、持有者归属都按它，规则见[第 3 页](/envio) | **缺** |
-| `derived.baseFee` | 【解析】【必须】基础手续费，按合约 `_splitBuyFees` 从 `fee` 拆出。详情页费用展示 | **缺** |
-| `derived.creatorTax` | 【解析】【必须】创作者税。同上 | **缺** |
-| `derived.snipeTax` | 【解析】【必须，无则 `"0"`】反狙击税，来自同 tx 的 `SnipeTaxCharged`。同上 | **缺** |
+| `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `recipient`**——用户直接调曲线、经 TradeRouter 买，收币的都是用户本人。只有 `recipient` 是合约（0x Settler 这类聚合器自己收币再转给用户）时才需要 Envio 按整笔收据穿透后给出，规则见[第 3 页](/envio)。Activity、持仓、持有者归属都按它 | 缺（可选） |
 | `derived.quoteReserve` | 【解析】【必须】成交后曲线净募集（`trackedNetQuote`）。**毕业进度分子**（对外 `quoteRaised`） | **缺** |
 | `derived.tokenReserve` | 【解析】【必须】成交后曲线库存（`trackedTokens`）。存档、核对 | **缺** |
 | `derived.priceQuote` | 【解析】【必须】成交后边际价，一枚本币值多少配对资产，十进制小数字符串。**币价**、K 线、市值 | **缺** |
@@ -163,7 +158,6 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
             "tokensOut": "714285714285714285714285715", "fee": "1000000000000" },
   "token": { "token": "0x3d7e…4cdd" },
   "derived": { "trader": "0x2bf5…7675",
-               "baseFee": "666666666667", "creatorTax": "333333333333", "snipeTax": "0",
                "quoteReserve": "99000000000000", "tokenReserve": "285714285714285714285714285",
                "priceQuote": "0.000000000000140", "liquidityQuote": "198000000000000" }
 }
@@ -180,11 +174,9 @@ Java 写 `launchpad_trade`（CURVE / SELL），持仓结一笔已实现盈亏，
 | `args.tokensIn` | 【原始】【必须】卖出的本币。成交数量；持仓扣减 | 已有 |
 | `args.grossQuoteOut` | 【原始】【必须】离开定价储备的配对资产，扣费前。均价 | 已有 |
 | `args.netQuoteOut` | 【原始】【必须】用户实收。**成交额**、USD、盈亏 | 已有 |
-| `args.fee` | 【原始】【必须】费用总额。存档 | 已有 |
+| `args.fee` | 【原始】【必须】这笔扣的手续费总额。存档，本期不拆分不展示 | 已有 |
 | `token.token` | 【解析】【必须】同 CurveBuy | 已有 |
-| `derived.trader` | 【解析】【必须】真实交易者，名义地址是 `seller`，是合约按整笔收据净流出最大的地址。同 CurveBuy | **缺** |
-| `derived.baseFee` | 【解析】【必须】基础手续费 = `fee − creatorTax`。费用展示 | **缺** |
-| `derived.creatorTax` | 【解析】【必须】创作者税 = `grossQuoteOut × creatorTaxBps ÷ 10000` 向下取整。费用展示 | **缺** |
+| `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `seller`**；只有 `seller` 是合约时才需要 Envio 按整笔收据净流出最大的地址给出 | 缺（可选） |
 | `derived.quoteReserve` | 【解析】【必须】同 CurveBuy | **缺** |
 | `derived.tokenReserve` | 【解析】【必须】同 CurveBuy | **缺** |
 | `derived.priceQuote` | 【解析】【必须】同 CurveBuy | **缺** |
@@ -254,7 +246,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `args.sqrtPriceX96` | 【原始】【必须】成交后池价原值。存档、核对 | **缺** |
 | `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 | **缺** |
 | `args.tick` | 【原始】【可选】存档 | **缺** |
-| `args.fee` | 【原始】【可选】池费率。存档 | **缺** |
+| `args.fee` | 【原始】【可选】池费率原值。存档 | **缺** |
 | `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 认币先读它，没有再用 `args.id` 反查 `pool_id` | **缺** |
 | `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 | **缺** |
 | `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity | **缺** |
@@ -262,9 +254,6 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `derived.quoteAmount` | 【解析】【必须】配对资产数量，绝对值，最小单位。成交额、USD | **缺** |
 | `derived.priceQuote` | 【解析】【必须】成交后池价，一枚本币值多少配对资产。**毕业后的币价**、K 线、市值 | **缺** |
 | `derived.liquidityQuote` | 【解析】【必须】成交后池的流动性，以配对资产计：两侧按池价折成配对资产之和。`liquidity_usd = liquidityQuote × 配对资产价` | **缺** |
-| `derived.hookFee` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.fee`。费用展示 | **缺** |
-| `derived.creatorTax` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.creatorTax`。费用展示 | **缺** |
-| `derived.feeCurrency` | 【解析】【必须】费用按哪个币收，可能是本币也可能是配对资产。费用展示时换算 | **缺** |
 
 ```json
 "payload": {
@@ -275,8 +264,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
   "token": { "token": "0x3d7e…4cdd" },
   "derived": { "side": "BUY", "trader": "0x944…",
                "tokenAmount": "18000000000000000000000", "quoteAmount": "2500000000000000",
-               "priceQuote": "0.000000000000138", "liquidityQuote": "9000000000000000000", "hookFee": "24999843", "creatorTax": "0",
-               "feeCurrency": "0x0000000000000000000000000000000000000000" }
+               "priceQuote": "0.000000000000138", "liquidityQuote": "9000000000000000000" }
 }
 ```
 
@@ -326,7 +314,7 @@ Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `t
 | 事件 | 原因 | 扫链现状 |
 |---|---|---|
 | `QuoteAssetConfigured` | Envio 自己订阅、自己存，用来给 TokenLaunched 补精度 / 阈值；Java 不需要这张表 | 没发，正确 |
-| `SnipeTaxCharged` `HookFeeCollected` | 合并进 CurveBuy / Swap 的 `derived` | 没发，正确 |
+| `SnipeTaxCharged` `HookFeeCollected` | 费用拆分本期没有读者；`fee` 总额在成交事件里已有。将来做费用区走 FeeEscrow 的台账事件，不逐笔拆 | 没发，正确 |
 | `CurveBuyRefunded` | 退款不含在 `grossQuoteIn` 里，不影响任何数 | **在发**，Java 无 handler 会 SKIPPED，建议停发 |
 | `AutoGraduationFailed` | 排查用 | **在发**，同上 |
 | `TradeRouter.Launched` | 与同 tx 的首买 CurveBuy 重复 | 没发，正确 |

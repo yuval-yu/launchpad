@@ -41,9 +41,9 @@ rollback_on_reorg: true
 
 contracts:                              # 完整清单见第 9 页
   - name: LaunchFactory         # 固定地址。TokenLaunched / LaunchGraduationRescued
-  - name: BondingCurve          # TokenLaunched 时 contractRegister。CurveBuy / CurveSell / CurveCompleted / SnipeTaxCharged
+  - name: BondingCurve          # TokenLaunched 时 contractRegister。CurveBuy / CurveSell / CurveCompleted
   - name: LaunchToken           # TokenLaunched 时 contractRegister。Transfer
-  - name: GraduatedPoolHook     # 固定地址。PoolRegistered / HookFeeCollected
+  - name: GraduatedPoolHook     # 固定地址。PoolRegistered
   - name: V4GraduationReceiver  # 固定地址。V4PoolGraduated
   - name: PoolManager           # 固定地址，Uniswap v4 核心。Swap（按 poolId 过滤）
   - name: QuoteAssetRegistry    # 固定地址。QuoteAssetConfigured：只存内部状态，不发消息
@@ -76,7 +76,6 @@ type Token @entity {                # 一个发射币一行
   graduationQuoteThreshold: BigInt!
   trackedNetQuote: BigInt!        # 买入 += netQuoteIn，卖出 -= grossQuoteOut；曲线关闭后冻结
   trackedTokens: BigInt!          # 初值 TOTAL_SUPPLY；买入 -= tokensOut，卖出 += tokensIn
-  pendingSnipeTax: BigInt!        # 同 tx SnipeTaxCharged 先到、CurveBuy 后到的传递位
   totalSupply: BigInt!            # 初值 TOTAL_SUPPLY；Transfer 到零地址时减
   positiveBalanceCount: Int!      # 正余额地址数，含合约；Transfer 时按跨 0 增减
 }
@@ -103,11 +102,9 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 
 - **QuoteAssetConfigured**：upsert `QuoteAssetConfig`，**不发消息**（Java 不需要；TokenLaunched 的 derived 里带精度 / 阈值 / 初始储备）
 - **TokenLaunched**：`contractRegister` curve 与 token；建 `Token`，精度、初始储备、阈值从 `QuoteAssetConfig` 取；`derived` 带这三项；发消息。总供应 / 精度 / 铸币量是 `LaunchDefaults` 常数，Java 自己有，不发
-- **SnipeTaxCharged**：写 `Token.pendingSnipeTax`，**不发消息**
-- **CurveBuy / CurveSell**：更新两个储备；`derived` = token、**trader（见下一节）**、baseFee / creatorTax / snipeTax（按合约 `_splitBuyFees` 与卖出税率拆好；snipeTax 取走并清零）、quoteReserve、tokenReserve、priceQuote、liquidityQuote；发消息
+- **CurveBuy / CurveSell**：更新两个储备；`derived` = quoteReserve、tokenReserve、priceQuote、liquidityQuote；名义地址（买 `recipient` / 卖 `seller`）是合约时再补 trader（见下一节），不是合约不用给；发消息
 - **CurveCompleted / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息（曲线关闭订曲线的 CurveCompleted，工厂的 LaunchSwept 不订）
-- **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote、liquidityQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
-- **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
+- **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = side、**trader（见下一节，必须）**、tokenAmount、quoteAmount、priceQuote、liquidityQuote；发消息
 - **流动性 `derived.liquidityQuote`**（CurveBuy / CurveSell / V4PoolGraduated / Swap 都给，以配对资产计）：曲线阶段 = `trackedNetQuote × 2`；毕业后 = 池两侧按池价折成配对资产之和，全区间仓位下两侧各 `L × (√P − √P_lower)` 与 `L × (√P_upper − √P) ÷ (√P × √P_upper)`，按 currency0 / 1 方向与精度整理。Java 只乘配对资产价，不存池子信息；W1 用真实池对 `balanceOf(PoolManager)` 核一次
 - **Transfer**：`from` 为零地址（铸币）只更新 `Balance`，**不发消息**（Java 收到 TokenLaunched 时按常量 TOTAL_SUPPLY 写曲线余额）；其余更新 `Balance(token, from)` 与 `Balance(token, to)`，`to` 为零地址减 `Token.totalSupply`，余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、fromKind、toKind、totalSupply、positiveBalanceCount（余额都是**变动后的绝对值**；kind 按 config 里的固定地址 + 该币的 curve 判）；发消息。Java 拿到就 set，不累加
 - **Heartbeat**：`onBlock` 每 N 块（约一分钟）发一条 headBlock / processedBlock / processedBlockTime；Java 用来判断 Envio 是否活着
@@ -119,13 +116,13 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 
 **规则（与上一版 Java 里已验证过的一致）：**
 
-1. **名义交易者**：`CurveBuy.recipient` / `CurveSell.seller`；池内没有名义地址
+1. **名义交易者**：`CurveBuy.recipient` / `CurveSell.seller`；池内没有名义地址。曲线事件的 `derived.trader` 是**可选**的：名义地址不是合约就不用给，Java 自己取名义地址
 2. **净流量**：取这笔 tx 里本币的全部 `Transfer`，按地址算净流入（to 加、from 减），剔除零地址和成交场所（curve / PoolManager）。买入取**净流入最大**的地址，卖出取**净流出最大**的地址
 3. **曲线**：名义地址不是合约 → 直接用；是合约（路由、0x Settler、聚合器）→ 用净流量；净流量解不出 → 退回名义地址（曲线成交不丢行）
 4. **池内**：一律用净流量；解不出 → `trader = null`，Java 照写成交行但不进 Activity 与持仓
 5. **「是合约」只决定要不要走净流量，不决定归属**：AA / 合约钱包本身就是用户，净流量会正确选中它；中继收多少转多少净为 0，自然出局
 
-**为什么不能靠区块内 handler 顺序凑。** 池内一笔买入的日志顺序是 `Swap → HookFeeCollected → Transfer(PoolManager → 用户)`，Transfer 在 Swap **之后**；经 0x Settler 时还有第二条 `Settler → 用户`。Swap handler 跑的时候这些 Transfer 还没到，等 Transfer handler 回填又不知道哪条是最后一条。所以不用顺序，直接问链：
+**为什么不能靠区块内 handler 顺序凑。** 池内一笔买入的日志顺序是 `Swap → （hook 的费用事件）→ Transfer(PoolManager → 用户)`，Transfer 在 Swap **之后**；经 0x Settler 时还有第二条 `Settler → 用户`。Swap handler 跑的时候这些 Transfer 还没到，等 Transfer handler 回填又不知道哪条是最后一条。所以不用顺序，直接问链：
 
 ```ts
 // 输入定了输出就定：某 tx 里某 token 的全部 Transfer。cache: true，重跑直接命中
@@ -150,8 +147,8 @@ export const isContract = createEffect({          // eth_getCode != 0x；cache: 
 
 **Java 侧完全不碰这件事**：拿到 `derived.trader` 直接落 `trader_address`；两个来源合并、CONFLICT 判定、`ContractProbe`、`TokenNetFlow` 全部删除。
 
-::: info 同 tx 配对的两组
-`SnipeTaxCharged → CurveBuy`（税在前，用 `Token.pendingSnipeTax` 传递）、`Swap → HookFeeCollected`（费在后，暂存 Swap 到 HookFeeCollected 再发）。这两组顺序由合约代码决定，是确定的；Transfer 不参与配对，归属走收据。
+::: info 同 tx 不需要配对
+费用拆分本期不做，`SnipeTaxCharged` / `HookFeeCollected` 不订阅、不合并，每种成交事件各自独立发；Transfer 不参与配对，归属走收据。
 :::
 
 ## 发送：确认深度、顺序、至少一次

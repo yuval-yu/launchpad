@@ -57,15 +57,14 @@ title: 11 · 与扫链现状的差距
 | 字段 | 必须 | Envio 怎么得到 |
 |---|---|---|
 | ~~`derived.token`~~ | — | 已由 `payload.token.token` 给出 |
-| `derived.trader` | ✓ | 名义地址；是合约则按整笔收据本币 Transfer 净流量穿透（[第 3 页](/envio)） |
-| `derived.baseFee` `creatorTax` `snipeTax` | ✓ | 按合约 `_splitBuyFees` / 卖出税率拆；snipeTax 来自同 tx `SnipeTaxCharged`（卖出无） |
+| `derived.trader` | 可选 | 名义地址不是合约不用给；是合约则按整笔收据本币 Transfer 净流量穿透（[第 3 页](/envio)） |
 | `derived.quoteReserve` `tokenReserve` | ✓ | 成交后 `trackedNetQuote` / `trackedTokens` |
 | `derived.priceQuote` | ✓ | 常数乘积定价 |
 | `derived.liquidityQuote` | ✓ | `trackedNetQuote × 2` |
 
 ### Swap（整条缺）
 
-`derived.side` `trader` `tokenAmount` `quoteAmount` `priceQuote` `liquidityQuote` `hookFee` `creatorTax` `feeCurrency` 必须；token 按曲线事件的做法放 `payload.token.token`（`cbcf16e` 已加 PoolManager / PositionManager 的 ABI，Swap 应该在路上）。
+`derived.side` `trader` `tokenAmount` `quoteAmount` `priceQuote` `liquidityQuote` 必须；token 按曲线事件的做法放 `payload.token.token`（`cbcf16e` 已加 PoolManager / PositionManager 的 ABI，Swap 应该在路上）。
 
 ### Transfer（整条缺）
 
@@ -78,9 +77,9 @@ title: 11 · 与扫链现状的差距
 ## 建议：按这个顺序对齐
 
 1. ~~统一 key = token 地址~~ **已完成**（`cbcf16e`），曲线事件同时带上了 `payload.token.token`。
-2. **补 `derived.trader`。** 没有它 Activity 和持仓没有归属。
+2. **曲线阶段的 `derived.trader` 只在名义地址是合约时给。** 前端不走 0x 的话这一步几乎没活；池内 Swap 的 trader 必须给。
 3. **补 Transfer 与 Swap 两种事件。** 没有前者没有余额和持有者；没有后者已毕业的币是死的。
-4. **补 CurveBuy / CurveSell 的其余 derived**（费用拆分、储备、价格、流动性）与 TokenLaunched 的 derived。
+4. **补 CurveBuy / CurveSell 的 derived**（储备、价格、流动性）与 TokenLaunched 的 derived。
 5. **补毕业三事件、Heartbeat。**
 6. `CurveBuyRefunded` / `AutoGraduationFailed` 停发；config 里去掉 `Approval`；加 `txFrom`。
 

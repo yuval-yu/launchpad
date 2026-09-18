@@ -42,7 +42,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | 〃 | 〃 | LaunchConfigAdded · LaunchConfigUpdated · LaunchFeeUpdated · LaunchEnabledUpdated · SnipeTaxUpdated · MaxCreatorTaxUpdated · CreatorFeeRecipientChangeProposed · CreatorFeeRecipientChangeCancelled · AllowlistedLauncherUpdated | 空 |
 | 〃 | 〃 | LaunchGraduated · LaunchForwarderUpdated · ProtocolConfigured · DeployersConfigured | 不订阅 |
 | **BondingCurve** | 动态：TokenLaunched.curve | CurveBuy · CurveSell · CurveCompleted | 发 |
-| 〃 | 〃 | SnipeTaxCharged | 合并进同 tx 的 CurveBuy |
+| 〃 | 〃 | SnipeTaxCharged | 留档（费用拆分本期不做） |
 | 〃 | 〃 | CurveBuyRefunded · FeesDistributed · FeesRescued · GraduationFeesDeferred · BuybackLocked · SnipeTaxExempted · AutoGraduationFailed | 空 |
 | 〃 | 〃 | CurveCompleted | 发（曲线关闭 = 毕业） |
 | 〃 | 〃 | Initialized · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅（与工厂事件重复） |
@@ -50,7 +50,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | **QuoteAssetRegistry** | 固定 | QuoteAssetConfigured | Envio 自存，不发（给 TokenLaunched 补精度 / 阈值） |
 | **V4GraduationReceiver** | 固定 | V4PoolGraduated | 发（Dust 四个事件不订阅） |
 | **GraduatedPoolHook** | 固定 | PoolRegistered | 发 |
-| 〃 | 〃 | HookFeeCollected | 合并进同 tx 的 Swap |
+| 〃 | 〃 | HookFeeCollected | 留档（费用拆分本期不做） |
 | 〃 | 〃 | PoolFeesSwept · PoolFeesRescued · PoolBuybackSkipped · PoolConversionSkipped | 空 |
 | 〃 | 〃 | ReceiverConfigured · CreatorFeeRecipientUpdated · BuybackEnabledUpdated | 不订阅 |
 | **PoolManager** | 固定，v4 核心 | Swap | 发，按 poolId 过滤，其它池丢弃 |
@@ -80,16 +80,16 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 | 合约 · 事件 | 参数 | Envio 补的 derived | Java 落到哪 |
 |---|---|---|---|
 | **LaunchFactory.TokenLaunched** | token, curve, creator, launchSalt, quoteAsset, quoteConfigHash, launchConfigId, curveFeeBps, tickSpacing, creatorFeeRecipient, creatorTaxBps, buybackEnabled, name, symbol, logo, description, socials | quoteDecimals, initialVirtualQuoteReserve, graduationQuoteThreshold | `launchpad_token` 插入；`storyFun` 绑叙事 |
-| **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | token, trader, baseFee / creatorTax / snipeTax（按合约规则拆好）, quoteReserve, tokenReserve, priceQuote, liquidityQuote | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
-| **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上（无 snipeTax） | 同上，position 结一笔已实现盈亏 |
+| **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | quoteReserve, tokenReserve, priceQuote, liquidityQuote；trader 可选（名义地址是合约时才给） | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
+| **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上 | 同上，position 结一笔已实现盈亏 |
 | **BondingCurve.CurveCompleted** | recipient, quoteAmount, tokenAmount + token.token | — | 币行 `curve_closed_at` / `swept_quote` / `swept_token`，status = GRADUATED |
 | **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` |
 | **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价）, liquidityQuote | 币行 `pool_created_at` / `pool_id` / `price_quote` |
 | **LaunchFactory.LaunchGraduationRescued** | token, recipient, quoteAmount, tokenAmount | — | 币行 `rescued_at`，status = RESCUED。**产品要定这种币怎么展示** |
-| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | token, poolId, side, trader, tokenAmount, quoteAmount, priceQuote, hookFee / creatorTax / feeCurrency（同 tx HookFeeCollected）, liquidityQuote | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
+| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | side, trader（必须）, tokenAmount, quoteAmount, priceQuote, liquidityQuote | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
 | **LaunchToken.Transfer** | from, to, value | fromBalance, toBalance, totalSupply, positiveBalanceCount（变动后绝对值） | `launchpad_balance` set；币行 `total_supply` / `holder_count` set |
 
-同 tx 配对：`SnipeTaxCharged → CurveBuy`、`Swap → Transfer → HookFeeCollected`，都在 Envio 里合并，Java 收到的是一条完整的成交消息。
+同 tx 不需要配对：费用拆分本期不做，每种成交事件各自独立发。
 
 ## 订阅、空 handler、只进 raw_events（不发消息）
 
@@ -125,6 +125,6 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 - **各合约部署地址与区块号**：主网与测试网各一份；PoolManager 是 Uniswap v4 核心合约，地址也要
 - **路由地址**：TradeRouter 与 Universal Router，Transfer 回填交易者时要排除；前端是否还有别的下单路径
-- **`@index` 与 `getWhere` 的实际能力**：复合索引支不支持、同一区块内刚写的实体能否被 `getWhere` 查到。后者还决定 SnipeTaxCharged → CurveBuy、Swap → HookFeeCollected 这类同 tx 配对能不能靠实体传递
+- **`@index` 与 `getWhere` 的实际能力**：复合索引支不支持、同一区块内刚写的实体能否被 `getWhere` 查到。（本期没有同 tx 配对，暂不关键）
 - **QuickNode 的限流与回填速度**：主网与测试网都纯 RPC，`eth_getLogs` 按地址过滤，动态注册的合约越多每批请求越重；全量回填一次要多久、追块的请求频率占不占额度，W1 实测
 - **合约升级怎么通知**：clone 实现可换（`ImplementationUpdated`），事件签名一变 handler 收不到，Envio 不报错。可以顺手订阅 Deployer 的 ImplementationUpdated 当告警源
