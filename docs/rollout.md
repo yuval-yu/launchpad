@@ -8,9 +8,9 @@ title: 10 · 五个阶段、待拍板、风险
 
 契约先行，删除最后；每个阶段能单独编译、部署、验收。P1 与 P2 可并行。
 
-1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、十种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
+1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、十一种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / LaunchSwept / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
 2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引、月分区；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：用 P0 的样例消息在 dev 跑通；1 万条 Transfer 的消费耗时有数。
-3. **P2 handler 与十一张表。** 新 topic、十个 handler；按[第 7 页](/tables)从零建十一张表（V1 开头 DROP 全部旧表）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
+3. **P2 handler 与十一张表。** 新 topic、十一个 handler；按[第 7 页](/tables)从零建十二张表（V1 开头 DROP 全部旧表）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
 4. **P3 读侧切换。** K 线 / 成交 / 持有者 / 资产页 / 协议数据改读自家表；两个新接口；币行行情列改由 handler + 线二 / 线三维护；对比新旧响应。**出口**：test 环境前端全页面走通，响应与 DTO 契约一致。
 5. **P4 删除与收尾。** [第 5 页](/java)删除清单；dev / test 库跑 V1（不迁移任何旧数据）；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / QuickNode / Blockscout 字样。
 
@@ -20,17 +20,16 @@ title: 10 · 五个阶段、待拍板、风险
 |---|---|---|
 | Q1 | **配对资产余额**（`/assets/balances/quote-tokens`：ETH / USDG / 股票币）。发射台事件覆盖不到，launchpad 又不许有 RPC | 接口下线，前端用钱包 SDK 直接读链。确认后从[第 8 页](/frontend)删掉这一行 |
 | Q2 | **0x gasless 透传**。它是和合约交互挂钩的接口，按原则不留在 launchpad | 不走 0x 就删；还走就挪去网关或单独的小服务，launchpad 不管 |
-| Q3 | **`liquidity_usd`** 前端是否真展示 | 不展示就删列；要展示则 Envio 在 Swap / V4PoolGraduated 的 `derived` 里给池两侧储备，Java 只乘价 |
-| Q4 | **确认深度 N** | 由链的最终性定，Robinhood 几乎不重组，取小值 |
-| Q5 | **RESCUED 币怎么展示** | 数据先收；隐藏 / 标「已终止」/ 留在已毕业分区待产品定 |
-| Q6 | **配对资产价源**具体选哪家 | 见[第 6 页](/pricing)候选 |
+| Q3 | **确认深度 N** | 由链的最终性定，Robinhood 几乎不重组，取小值 |
+| Q4 | **RESCUED 币怎么展示** | 数据先收；隐藏 / 标「已终止」/ 留在已毕业分区待产品定 |
+| Q5 | **配对资产价源**具体选哪家 | 见[第 6 页](/pricing)候选 |
 
 ## 风险
 
 | 风险 | 后果 | 怎么办 |
 |---|---|---|
 | **Envio 停了** | 消息停止，列表与详情停在最后一条 | 单实例接监控；「已处理区块落后链头」告警；恢复后从断点续，不丢事件 |
-| **Envio 重组回滚不撤消息** | 孤块上的事件已落库 | 确认深度后才发（Q4）；Java 的 `removed=true` 分支保留 |
+| **Envio 重组回滚不撤消息** | 孤块上的事件已落库 | 确认深度后才发（Q3）；Java 的 `removed=true` 分支保留 |
 | **消息重复 / 乱序** | 派生表重复计数；成交先于发币到达 | 事实行首插成功才推进派生表；乱序进 FAILED 由 retry job 一分钟后重投 |
 | **写审计表失败** | 消息丢失、无法回放 | 死信 topic + 回灌接口 |
 | **审计表增长** | 磁盘 | 月分区、90 天后清空 raw_message、Envio 可重扫重投 |

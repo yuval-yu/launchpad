@@ -42,7 +42,7 @@ contracts:                              # 完整清单见第 9 页
   - name: LaunchToken           # TokenLaunched 时 contractRegister。Transfer
   - name: GraduatedPoolHook     # 固定地址。PoolRegistered / HookFeeCollected
   - name: V4GraduationReceiver  # 固定地址。V4PoolGraduated
-  - name: PoolManager           # 固定地址，Uniswap v4 核心。Swap（按 poolId 过滤）
+  - name: PoolManager           # 固定地址，Uniswap v4 核心。Swap / ModifyLiquidity（按 poolId 过滤）
   - name: QuoteAssetRegistry    # 固定地址。QuoteAssetConfigured
   # 费用 / 回购 / 治理类：订阅、空 handler、只进 raw_events
 
@@ -65,7 +65,9 @@ raw_events: true
 type Token @entity {                # 一个发射币一行
   id: ID!                         # token 地址
   curve: String! @index           # 曲线地址；曲线事件按 srcAddress 反查
-  poolId: String @index           # PoolRegistered 后才有；Swap 按它反查
+  poolId: String @index           # PoolRegistered 后才有；Swap / ModifyLiquidity 按它反查
+  poolLiquidity: BigInt!          # 当前 L；V4PoolGraduated 初值，ModifyLiquidity 增减
+  poolSqrtPriceX96: BigInt!       # 最近一次 Swap / 建池
   quoteAsset: String!             # 配对资产地址，零地址 = 原生 ETH
   quoteDecimals: Int!             # 来自 QuoteAssetConfig
   initialVirtualQuoteReserve: BigInt!
@@ -104,6 +106,8 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **LaunchSwept / V4PoolGraduated / PoolRegistered / LaunchGraduationRescued**：PoolRegistered 写 `Token.poolId`；四个都原样发消息
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = token、side、**trader（见下一节）**、tokenAmount、quoteAmount、priceQuote；fee / creatorTax 由同 tx 紧随其后的 `HookFeeCollected` 补（它在 `afterSwap` 里发，logIndex 紧挨着 Swap），所以 Swap 暂存、在 HookFeeCollected handler 里发
 - **HookFeeCollected**：取出暂存的 Swap，补 fee / creatorTax / feeCurrency，发消息
+- **ModifyLiquidity**：按 `poolId` 查 `Token`，查不到 return；`Token.poolLiquidity += liquidityDelta`，重算两侧储备；`derived` = token、liquidity、poolQuoteReserve、poolTokenReserve；发消息
+- **池两侧储备**（V4PoolGraduated / Swap / ModifyLiquidity 都要给）：全区间仓位下 `token 侧 = L × (√P_upper − √P) ÷ (√P × √P_upper)`、`quote 侧 = L × (√P − √P_lower)`，再按 currency0 / 1 方向与精度整理成「配对资产数量」「本币数量」。第三方仓位若区间不同，按各自区间算后求和；W1 用真实池对 `balanceOf(PoolManager)` 核一次
 - **Transfer**：`from` 为零地址（铸币）只更新 `Balance`，**不发消息**（初始余额走 TokenLaunched.derived.curveBalance）；其余更新 `Balance(token, from)` 与 `Balance(token, to)`，`to` 为零地址减 `Token.totalSupply`，余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、fromKind、toKind、totalSupply、positiveBalanceCount（余额都是**变动后的绝对值**；kind 按 config 里的固定地址 + 该币的 curve 判）；发消息。Java 拿到就 set，不累加
 - **Heartbeat**：`onBlock` 每 N 块（约一分钟）发一条 headBlock / processedBlock / processedBlockTime；Java 用来判断 Envio 是否活着
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`

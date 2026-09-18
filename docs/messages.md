@@ -22,6 +22,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `hookFee` `creatorTax` `feeCurrency` | Swap | 在同 tx 的 `HookFeeCollected` 里，Envio 合并 |
+| `poolQuoteReserve` `poolTokenReserve` | V4PoolGraduated · Swap · ModifyLiquidity | v4 池不存两侧余额，要从 `liquidity` 与 `sqrtPriceX96` 按仓位区间推，是 Uniswap 数学；Java 只乘价算 `liquidity_usd` |
 | `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
 | `tokenDecimals` `quoteSymbol` | TokenLaunched | 前者是合约常数；后者要 `symbol()` 读链 |
@@ -78,7 +79,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 |
 | `payload.derived` | 【按事件】Envio 解析的字段，对象。见各事件 |
 
-## 十种事件
+## 十一种事件
 
 ### QuoteAssetConfigured（QuoteAssetRegistry）
 
@@ -214,7 +215,7 @@ Java 写币行 `curve_closed_at` / `swept_quote` / `swept_token`，`status = GRA
 
 ### V4PoolGraduated（V4GraduationReceiver）
 
-Java 写币行 `pool_created_at` / `pool_id` / `pool_position_id` / `pool_liquidity` / `price_quote`。
+Java 建 `launchpad_pool` 行（池的基本信息），币行 set `pool_id` / `pool_created_at` / `price_quote`。
 
 | 字段 | 含义与说明 |
 |---|---|
@@ -229,11 +230,12 @@ Java 写币行 `pool_created_at` / `pool_id` / `pool_position_id` / `pool_liquid
 | `args.tokenDust` | 【原始】【可选】本币尾数。存档 |
 | `args.quoteDust` | 【原始】【可选】配对资产尾数。存档 |
 | `derived.priceQuote` | 【解析】【必须】池初始价，一枚本币值多少配对资产，由 `sqrtPriceX96` 按 currency0 / 1 方向与两侧精度换算。建池到第一笔 Swap 之间的币价 |
-| `derived.poolQuoteReserve` `derived.poolTokenReserve` | 【解析】【待定，Q3】池初始两侧储备。同 Swap |
+| `derived.poolQuoteReserve` | 【解析】【必须】建池时池里配对资产的数量。初始流动性 |
+| `derived.poolTokenReserve` | 【解析】【必须】建池时池里本币的数量。初始流动性 |
 
 ### PoolRegistered（GraduatedPoolHook）
 
-Java 写币行 `pool_id` / `pool_quote_asset`（与 V4PoolGraduated 谁先到谁写）。
+Java upsert `launchpad_pool`（`pool_id` / `quote_asset` / `registered_at`，与 V4PoolGraduated 谁先到谁建行），币行 set `pool_id`。
 
 | 字段 | 含义与说明 |
 |---|---|
@@ -254,7 +256,7 @@ Java 写币行 `rescued_at`，`status = RESCUED`。
 
 ### Swap（PoolManager，只发我们的池）
 
-Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。
+Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；池行 set 储备 / 流动性 / 价格 / 最近成交；币行 set 价格、最近成交。
 
 | 字段 | 含义与说明 |
 |---|---|
@@ -275,7 +277,8 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 | `derived.hookFee` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.fee`。费用展示 |
 | `derived.creatorTax` | 【解析】【必须，无则 `"0"`】同 tx `HookFeeCollected.creatorTax`。费用展示 |
 | `derived.feeCurrency` | 【解析】【必须】费用按哪个币收，可能是本币也可能是配对资产。费用展示时换算 |
-| `derived.poolQuoteReserve` `derived.poolTokenReserve` | 【解析】【待定，Q3】成交后池两侧的储备。只在 `liquidity_usd` 要做时才要；Java 只乘价，不做 Uniswap 数学 |
+| `derived.poolQuoteReserve` | 【解析】【必须】成交后池里配对资产的数量，最小单位。`liquidity_usd` 的一半 |
+| `derived.poolTokenReserve` | 【解析】【必须】成交后池里本币的数量，最小单位。`liquidity_usd` 的另一半 |
 
 ```json
 "payload": {
@@ -289,6 +292,20 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
                "feeCurrency": "0x0000000000000000000000000000000000000000" }
 }
 ```
+
+### ModifyLiquidity（PoolManager，只发我们的池）
+
+第三方往毕业池加减流动性时触发（我们自己的全区间仓位永久锁定，不会动）。Java 只 set `launchpad_pool` 的流动性与储备，不建成交行。
+
+| 字段 | 含义与说明 |
+|---|---|
+| `args.id` | 【原始】【必须】poolId。定位池行 |
+| `args.sender` | 【原始】【可选】操作方。存档 |
+| `args.tickLower` `args.tickUpper` `args.liquidityDelta` `args.salt` | 【原始】【可选】仓位区间与增减量。存档 |
+| `derived.token` | 【解析】【必须】这个池对应的发射币 |
+| `derived.liquidity` | 【解析】【必须】变动后池的总流动性 L。池行 set |
+| `derived.poolQuoteReserve` | 【解析】【必须】变动后池里配对资产的数量。`liquidity_usd` |
+| `derived.poolTokenReserve` | 【解析】【必须】变动后池里本币的数量。`liquidity_usd` |
 
 ### Transfer（LaunchToken，只发发射币）
 
@@ -339,7 +356,6 @@ Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `t
 | `CurveBuyRefunded` | 退款不含在 `grossQuoteIn` 里，不影响任何数 |
 | `TradeRouter.Launched` | 与同 tx 的首买 CurveBuy 重复 |
 | `CurveCompleted` `LaunchGraduated` | 与 LaunchSwept / V4PoolGraduated 同 tx 信息重叠 |
-| `ModifyLiquidity` | 只为 `liquidity_usd`，待定（[第 10 页](/rollout)） |
 | `CreatorFeeRecipientUpdated` `BuybackEnabledUpdated` `TokenDustLocked` | 当前接口不出这些字段 |
 | 费用 / 回购 / 治理类 | 本期不做费用区；留 `raw_events`，要用时加 handler 重扫 |
 
