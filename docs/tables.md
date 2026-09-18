@@ -136,7 +136,7 @@ launchpad_kline_minute                         # 只有有成交的分钟才有�
   trade_count            INT
                                                # uk；(chain_id, period_start)
 
-launchpad_kline_day                            # 字段同分钟桶，period_start 取整 UTC 日；同样只有有成交的日才有行；ALL 档超过 30 天读它
+launchpad_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
 
 launchpad_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
   chain_id               BIGINT

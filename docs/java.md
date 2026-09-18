@@ -52,7 +52,7 @@ tokens.setReservesAndPrice(token, quoteReserve, tokenReserve, priceQuote);   // 
 tokens.advanceLastTradeAt(token, blockTime);
 if (inserted) {                                               // 累加型只走一次
     positions.apply(pos, trade);                              // 买入加成本，卖出扣成本、累加已实现盈亏
-    klines.upsertMinute(trade); klines.upsertDay(trade);
+    klines.upsertMinute(trade); klines.upsertHour(trade);
     protocolDays.add(trade);
 }
 ```
@@ -63,7 +63,7 @@ if (inserted) {                                               // 累加型只走
 |---|---|---|---|
 | QuoteAssetConfigured | `launchpad_quote_asset` upsert | — | — |
 | TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；写曲线的余额行（`derived.curveBalance`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_day、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| CurveBuy / CurveSell | `launchpad_trade` | 币行 `quote_reserve` `token_reserve` `price_quote` `liquidity_quote` `last_trade_at`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | LaunchSwept | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
@@ -74,7 +74,7 @@ if (inserted) {                                               // 累加型只走
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 
-**K 线桶只在有成交时写。** 桶由成交 handler 在首插成功时 upsert：该分钟 / 该日第一笔建行（open = 这笔成交后价），之后的成交只更新 high / low / close / 量 / 笔数。**没有成交的分钟不存行，没有定时任务补空桶**。读接口画图时遇到空档怎么处理（延续上一根收盘价，还是断开）是展示口径，在响应里做，不落库。
+**K 线桶只在有成交时写。** 两种桶：分钟与小时（用户 09-18 定，不建日桶，日按 24 个小时桶读时合并）。桶由成交 handler 在首插成功时 upsert：该分钟 / 该小时第一笔建行（open = 这笔成交后价），之后的成交只更新 high / low / close / 量 / 笔数。**没有成交的分钟不存行，没有定时任务补空桶**。读接口画图时遇到空档怎么处理（延续上一根收盘价，还是断开）是展示口径，在响应里做，不落库。
 
 **持仓成本。** 移动平均：买入 `qty += tokenOut`、`cost_quote += quoteIn`、`cost_usd += amountUsd`；卖出先算均价、释放 `min(tokenIn, qty) × 均价`，超出部分零成本，`pnl_*` 写回这笔 trade 与 position 的累计；恰好归零时成本清零。转入转出只改余额不改持仓。
 
@@ -109,7 +109,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 |---|---|---|
 | `/market/tokens/*` `/search` | `launchpad_token` | 不变 |
 | `/coin/detail` | 币行 + CMC 同步刷 | 币行，不再刷；`priceInPair = price_quote` |
-| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_trade` 逐笔；H1 / H6 / D1 读 `launchpad_kline_minute`；ALL ≤ 30 天分钟桶合并，更长读 `launchpad_kline_day`。LTTB 与档位映射保留 |
+| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_trade` 逐笔；H1 / H6 / D1 读 `launchpad_kline_minute`；ALL 读 `launchpad_kline_hour` 按跨度合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。LTTB 与档位映射保留 |
 | `/coin/trades` | CMC lastId 游标 | `launchpad_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
 | `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
 | `/assets/activity` | `launchpad_activity` | `launchpad_trade` 按 trader；trader 为 null 的不出 |
