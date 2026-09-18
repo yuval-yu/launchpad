@@ -52,14 +52,14 @@ Java 收到就 set `launchpad_token.price_quote`，同时写进这笔 `launchpad
 
 ```java
 // CoinPriceService
-Optional<BigDecimal> priceAt(String asset, long blockTimeMillis);   // priced_at ≤ blockTime 的最近一行；距离 > 60 分钟返回 empty
-Optional<BigDecimal> currentPrice(String asset);                    // 最新一行；超过 stale-after 返回 empty
+Optional<BigDecimal> priceAt(String asset, long blockTimeMillis);   // priced_at ≤ blockTime 的最近一行；没有就取表里最早的一行；表里一行都没有才 empty
+Optional<BigDecimal> currentPrice(String asset);                    // 最新一行，不看多旧；一行都没有才 empty
 ```
 
 ::: tip USD 在写入时固化，但必须按区块时间取价
 消费跟着链头跑时，「≤ 区块时间的最近一行」拿到的就是最新一行，等价于实时价。差别只在三种情况出现：首次上线回填历史、停机后追消息、回放。这时候拿今天的 ETH 价乘上周的成交是错的。所以**价格历史表是固化 USD 的前提**，「实时价」只是它的最新一行。
 
-找不到价格行（只在线一停机窗口发生）：前一行距离超过一小时就写 null，K 线画断点，与协议数据页缺数据的处理一致。**不猜、不回落、不事后补。**
+**有价总比没价好（用户 09-18 定）：取已知的最近价格，不因为价格旧就给 null。** 线一停机期间的成交用停机前最后一行；价格历史开始之前的成交用最早的一行。只有该资产一行价格都没有（从未配价源）才为 null。价格比区块时间旧超过一小时时打一条 WARN，只为发现线一停了，不影响取值。**不事后补**：写下的 USD 不再改。
 :::
 
 ## 每个 USD 数字取价的时点
@@ -74,7 +74,7 @@ Optional<BigDecimal> currentPrice(String asset);                    // 最新一
 ## 两条规则
 
 ::: warning
-**历史价只来自我们自己每分钟落的行**，不依赖任何历史价 API。历史从开始轮询那天起才有，停机期间的空档给 null，不补。
+**历史价只来自我们自己每分钟落的行**，不依赖任何历史价 API。取价永远是「已知的最近一行」，停机期间用停机前的价，事后不补。
 
 **每种资产只有一个价源，不互相兜底。** 交易所挂了只影响 ETH 系资产，Robinhood 挂了只影响股票代币，各自 null。
 :::

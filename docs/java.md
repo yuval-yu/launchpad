@@ -67,7 +67,7 @@ if (inserted) {                                               // 累加型只走
 | Swap | `launchpad_trade` | 币行 `price_quote` `pool_liquidity` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
 | Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值；币行 `total_supply` `holder_count` set | — |
 
-**USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，距离超过 60 分钟给 null。取不到 USD 的成交照写，`amount_usd` 为 null，不事后补。
+**USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 
 **持仓成本。** 移动平均：买入 `qty += tokenOut`、`cost_quote += quoteIn`、`cost_usd += amountUsd`；卖出先算均价、释放 `min(tokenIn, qty) × 均价`，超出部分零成本，`pnl_*` 写回这笔 trade 与 position 的累计；恰好归零时成本清零。转入转出只改余额不改持仓。
 

@@ -76,7 +76,7 @@ launchpad_trade                                # 一笔成交一行；只插入�
   quote_amount_whole     DECIMAL(36,18)        # quote_amount 按 quote_asset_decimals 换算的整枚数
   avg_price_quote        DECIMAL(36,18)        # 这笔均价：net_quote_amount ÷ token_amount；持仓成本用它
   price_quote            DECIMAL(36,18)        # 成交后边际价，derived.priceQuote；K 线用它
-  quote_usd_price        DECIMAL(20,8)         # priceAt(配对资产, block_time)；NULL = 缺价
+  quote_usd_price        DECIMAL(20,8)         # priceAt(配对资产, block_time)：已知的最近一行，不看多旧；NULL 只在该资产从未有价时
   amount_usd             DECIMAL(20,8)         # quote_amount_whole × quote_usd_price
   cost_quote_released    DECIMAL(36,18)        # 卖出才有：释放的成本；插入前用卖出前的持仓算好，不回填
   cost_usd_released      DECIMAL(20,8)

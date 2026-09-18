@@ -22,7 +22,7 @@ title: 8 · 每个现有接口的字段落在哪
 | `GET /assets/launches` · `/creator-fee-tokens` | `launchpad_token` 按 deployer | 无 |
 | `GET /assets/balances/tokens` | `launchpad_balance` 按 holder | 无。`syncedAt` = 最后一条 Transfer 消息的区块时间 |
 | `GET /assets/balances/quote-tokens` | — | **下线**（[第 10 页](/rollout) Q1）：前端用钱包 SDK 直接读链 |
-| `GET /analytics/overview` | `launchpad_protocol_day` + `launchpad_token` | 无。`volumeUsd` 不再因为漏拍快照而 null，只在价格历史缺口时少算缺价的那几笔 |
+| `GET /analytics/overview` | `launchpad_protocol_day` + `launchpad_token` | 无。`volumeUsd` 不再因为漏拍快照而 null；没配价源的配对资产那部分成交不计入 |
 | 币↔叙事绑定 | `launchpad_token_content` | 无。来自发币事件 `socials.storyFun` 的路径，为空再看 `website` |
 | `GET /0x/gasless/*` | — | **移出 launchpad**（Q2） |
 
