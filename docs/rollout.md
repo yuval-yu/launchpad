@@ -32,6 +32,10 @@ title: 10 · 五个阶段、待拍板、风险
 - **消费组** `auto-offset-reset: earliest`：新消费组第一次启动从 topic 头开始读，不丢上线前已经发出的消息。dev 的 Kafka 配置不用改。
 - **验收**：单测全绿；本地 Docker（MySQL / Redis / Kafka）灌扫链文档里的样例消息，四种事件全部 PROJECTED、各表数据正确、价格列为 NULL；再把同一批消息**打乱顺序、抽掉三分之一、之后补发**，对账脚本比对两次的表内容一致。
 
+::: tip 第一批已完成（09-19）
+分支 `feat/v6-envio-kafka`（未 push、未部署）：十五张工单全部合入，单测 + 集成测试 589 个全绿；「按序灌一遍」与「打乱 + 抽掉三分之一 + 补发 + 重复投」四个随机种子逐表逐列一致，忽略的只有自增 id 与写入时间；本地 Docker 验收脚本 `scripts/local-acceptance/run.sh` 十三项检查全部通过（四种事件 PROJECTED、多发的两种 SKIPPED、价格类列为空、无 K 线桶）。工单与每张的实现备注在 `.scratch/launchpad-v6-envio-kafka/issues/`。
+:::
+
 ## 已拍板
 
 | 问题 | 结论 |
