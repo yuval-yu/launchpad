@@ -81,7 +81,7 @@ if (inserted) {                                               // 累加型只走
 
 Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在更晚的事件之后才来。去重靠审计表 `event_id` 唯一键，重复的拒掉、漏的补上；但派生表要能吃下乱序，四条规则：
 
-1. **set 型状态带水位线。** 币行的 `price_quote` / `liquidity_quote` / `quote_reserve` / `total_supply` / `holder_count`，余额表的 `balance`，都只在事件的 `(block_number, log_index)` **大于**行上记录的水位线时才写，并推进水位线；更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
+1. **set 型状态带水位线。** 币行分两组：成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，Transfer 类列（`total_supply` / `holder_count`）用 `supply_state_*`，各自只在事件的 `(block_number, log_index)` **大于**本组水位线时才写并推进；余额表的 `balance` 一个水位线。分两组是因为两组由不同事件写，共用一个会让一条迟到的 Transfer 被更新的成交挡掉，`holder_count` 停在旧值。更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
 3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_v2_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_v2_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
 4. **「币还没到」不设重试上限。** 成交、Transfer 先于 TokenLaunched 到达时进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功后立即按币重投它们。

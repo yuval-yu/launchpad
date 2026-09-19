@@ -6,7 +6,7 @@ title: 7 · 从零建表：十张
 
 线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V1__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
-约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
+约定：金额最小单位 `DECIMAL(65,0)`；**每枚币的价格（无论配对资产计还是美元计）一律 `DECIMAL(50,30)`**——10 亿供应的币价量级是 1e-15 ETH，18 位小数只剩三四位有效数字，8 位小数直接成 0（09-19 审）；整笔金额类（成交额、市值、流动性、成交量的 USD）`DECIMAL(20,8)`；配对资产自身的美元价 `DECIMAL(20,8)`；地址小写 `CHAR(42)`、哈希 / bytes32 小写 `CHAR(66)`、`event_id`，**这些列一律 `CHARACTER SET ascii COLLATE ascii_bin`**（内容永远是 ASCII，utf8mb4 下索引按 4 倍宽度算，改后索引缩到四分之一、比较不走大小写折叠）；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
 
 四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等；余额是消息给的绝对值，也归这类）、**派生**（只由成交事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
 
@@ -16,7 +16,6 @@ title: 7 · 从零建表：十张
 launchpad_v2_chain_event                          # 一条消息一行；唯一键 event_id；重放源
   event_id               VARCHAR(160)          # v1:{chainId}:{blockHash}:{logIndex}:{removed}
   event_name             VARCHAR(64)           # ABI 事件名
-  signature              VARCHAR(255)          # 规范签名
   chain_id               BIGINT
   block_number           BIGINT
   block_hash             CHAR(66)
@@ -51,6 +50,7 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
   tx_hash                CHAR(66)
   log_index              INT                   # 这条成交日志在区块里的序号；和 tx_hash 一起唯一标识一笔成交
   token_address          CHAR(42)              # 成交的是哪个发射币
+  quote_asset_address    CHAR(42)              # 这个币的配对资产；协议日按它分组、按资产对账都要，不用 join 币表
   venue                  VARCHAR(8)            # 在哪成交：CURVE = 曲线阶段，POOL = 毕业后的 Uniswap 池
   side                   VARCHAR(4)            # BUY = 用户拿配对资产买币，SELL = 用户卖币换回配对资产
   trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址：曲线成交 = 收币 / 卖币的地址（消息给了穿透结果就用穿透结果）；池内成交由消息给，偶尔认不出来为 NULL
@@ -62,8 +62,8 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
   net_quote_amount       DECIMAL(65,0)         # 去掉手续费后真正进出曲线储备的配对资产数量（最小单位）；算这笔的均价用它
   fee_amount             DECIMAL(65,0)         # 这笔一共扣了多少手续费（配对资产最小单位）；本期不拆分不展示，只存档
   quote_amount_whole     DECIMAL(36,18)        # quote_amount 除以配对资产精度后的「整枚」数，直接可读，比如 1.5 ETH 或 200 USDG
-  avg_price_quote        DECIMAL(36,18)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount；持仓成本按它算
-  price_quote            DECIMAL(36,18)        # 这笔成交完成后币的最新价：一枚发射币值多少配对资产；K 线的点用它
+  avg_price_quote        DECIMAL(50,30)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount；持仓成本按它算
+  price_quote            DECIMAL(50,30)        # 这笔成交完成后币的最新价：一枚发射币值多少配对资产；K 线的点用它
   quote_usd_price        DECIMAL(20,8)         # 成交那一刻一枚配对资产值多少美元（取价格历史表里区块时间之前最近的一条）；从未有过价才 NULL
   amount_usd             DECIMAL(20,8)         # 这笔成交折成美元是多少 = quote_amount_whole × quote_usd_price
   cost_quote_released    DECIMAL(36,18)        # 卖出才有：这次卖掉的币当初是花多少配对资产买的（按移动平均成本算），用来算盈亏
@@ -91,7 +91,7 @@ launchpad_v2_balance                              # 一个（币, 地址）一�
   log_index              INT
   updated_at             BIGINT
                                                # UK  (token_address, holder_address)
-                                               # IDX (token_address, balance DESC)                持有者榜
+                                               # IDX (token_address, holder_kind, balance DESC)   持有者榜：只列 USER、按余额倒序，直接走索引
                                                # IDX (holder_address)                             资产页余额
 ```
 
@@ -113,6 +113,7 @@ launchpad_v2_position                             # 一个（地址, 币）一�
   buy_count / sell_count INT
   first_trade_at / last_trade_at BIGINT
   applied_block / applied_log BIGINT / INT     # 最后一笔按顺序应用的成交；更早的成交迟到 → 重算这一对
+  updated_at             BIGINT
                                                # UK  (trader_address, token_address)
                                                # IDX (trader_address, last_trade_at DESC)         持仓页
 
@@ -120,17 +121,17 @@ launchpad_v2_kline_minute                         # 只有有成交的分钟才�
   chain_id               BIGINT
   token_address          CHAR(42)
   period_start           BIGINT                # 桶起点，整分钟，毫秒
-  open / high / low / close DECIMAL(36,18)     # 配对资产计，取成交后价 price_quote
+  open / high / low / close DECIMAL(50,30)     # 配对资产计，取成交后价 price_quote
   open_block / open_log  BIGINT / INT          # open 来自哪笔成交；迟到的更早一笔替换 open（乱序保护）
   close_block / close_log BIGINT / INT         # close 来自哪笔成交；更晚的才替换 close
-  open_usd / high_usd / low_usd / close_usd DECIMAL(20,8)
+  open_usd / high_usd / low_usd / close_usd DECIMAL(50,30)   # 一枚币的美元价，量级可到 1e-11，8 位小数存不下
   volume_quote_curve     DECIMAL(65,0)         # 曲线成交量
   volume_quote_pool      DECIMAL(65,0)         # 池内成交量；分开存，「含不含 DEX」读时定
   volume_usd_curve       DECIMAL(20,8)
   volume_usd_pool        DECIMAL(20,8)
   trade_count            INT
+  updated_at             BIGINT
                                                # UK  (token_address, period_start)
-                                               # IDX (period_start)                               线三跨币取窗口
 
 launchpad_v2_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
 
@@ -141,6 +142,7 @@ launchpad_v2_protocol_day                         # UTC 日 × 配对资产一�
   volume_quote_curve / volume_quote_pool DECIMAL(65,0)
   volume_usd_curve / volume_usd_pool     DECIMAL(20,8)
   trade_count            INT
+  updated_at             BIGINT
                                                # UK  (day_index, quote_asset_address)
 ```
 
@@ -185,20 +187,20 @@ launchpad_v2_token                                # 一个发射币一行；列�
   swept_quote / swept_token DECIMAL(65,0)      # 曲线关闭时交给毕业流程的配对资产 / 本币数量
   quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变
   liquidity_quote        DECIMAL(65,0)         # 这个币现在的流动性有多少，以配对资产计（最小单位）：曲线阶段 = quote_reserve × 2（Java 算），毕业后由消息给；乘配对资产美元价就是 liquidity_usd
-  price_quote            DECIMAL(36,18)        # 币的最新价：一枚发射币值多少配对资产，来自最近一笔成交
-  state_block_number     BIGINT                # set 型链上列的水位线：只接受 (block, log) 更新的事件（乱序保护）
-  state_log_index        INT
+  price_quote            DECIMAL(50,30)        # 币的最新价：一枚发射币值多少配对资产，来自最近一笔成交
+  trade_state_block / trade_state_log BIGINT / INT   # 成交类列（price_quote / quote_reserve / liquidity_quote）的水位线：只接受更新的事件（乱序保护）
+  supply_state_block / supply_state_log BIGINT / INT # Transfer 类列（total_supply / holder_count）的水位线，与上面分开：两组列由不同事件写，共用一个会让迟到的 Transfer 被新成交挡掉
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
   cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)
-  holder_count           BIGINT                # 余额大于 0 的地址有多少个，含曲线、池子这些合约；展示时减掉非用户地址
+  holder_count           INT                   # 余额大于 0 的地址有多少个，含曲线、池子这些合约；展示时减掉非用户地址
 
   # ── 口径列：线二写（每分钟） ──
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
   graduated_at           BIGINT                # = curve_closed_at
   creator_user_id        BIGINT                # 可空；空 = 卡片只显示地址。对外 deployerUser
   og_key                 VARCHAR(160)
-  price_usd              DECIMAL(36,18)        # price_quote × 配对资产现价
+  price_usd              DECIMAL(50,30)        # price_quote × 配对资产现价
   market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
   liquidity_usd          DECIMAL(20,8)         # liquidity_quote × 配对资产价
   creator_holding_pct    DECIMAL(9,4)          # balance(creator) ÷ total_supply；对外 deployerHoldingPct
@@ -226,7 +228,7 @@ launchpad_v2_coin_price                           # 配对资产美元价历史�
   source                 VARCHAR(32)           # PriceSource.name()
   priced_at              BIGINT                # 取整到分钟
   created_at             BIGINT
-                                               # IDX (asset_address, priced_at)                   priceAt / 最新价
+                                               # UK  (asset_address, priced_at)                   同一资产同一分钟只有一行，INSERT IGNORE 天然幂等；priceAt / 最新价也走它
 
 launchpad_v2_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
   chain_id               BIGINT
@@ -269,5 +271,7 @@ launchpad_v2_token_content                        # 币 ↔ 叙事绑定，Token
 | `launchpad_v2_trade` | `block_time` 的月份 | 永久 | `uk (tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
 
 其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
+
+**分区要提前建。** RANGE 分区的表，落进不存在的月份会插入失败（或落进 MAXVALUE 兜底分区，那个分区以后 DROP 不掉）。一个每月跑的任务：给两张分区表 `ADD PARTITION` 到未来两个月，并把审计表三个月前的分区 `DROP`；建表脚本里先建到上线后第三个月。
 
 **可选的进一步减肥**：Transfer 是消息的大头、又只用来 set 余额，可以只落审计行不存 `raw_message`（Envio 的 `raw_events` 才是原文），`chain_event` 体积再降一半以上。要不要这么做等第一个月看真实量再定。
