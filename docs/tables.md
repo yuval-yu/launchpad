@@ -268,6 +268,8 @@ launchpad_v2_token_content                        # 币 ↔ 叙事绑定，Token
 
 ## 库与分区：建议
 
+**拆表信号。** `launchpad_v2_token` 是宽表，线二 / 线三每分钟改的六个热列（`price_usd` `market_cap_usd` `liquidity_usd` `volume_usd_24h` `price_change_24h` `last_trade_at`）上挂着四条列表排序索引。先靠「只写真变了的行」（[第 5 页](/java)定时线）压写入量；币数到十万、或线二一轮跑不完一分钟时，把这六列连同四条排序索引挪到 `launchpad_v2_token_stats`（一币一行），币表只剩静态与链上状态列。代价是列表查询多一次回表，所以没到那个量不拆。
+
 **不建独立库（用户 09-18 定）。** 前期只有审计表大，体积靠按月分区 + 月度 `DROP PARTITION` 解决，其余表都在千万行以下，放 `mini_drama` 库即可。将来要不要拆，看两个信号：日成交稳定超过 5 万笔，或 `mini_drama` 实例上其他服务的慢查询能对应到 launchpad 的写入高峰。真要拆代价也小：launchpad 读 `users` / `user_wallet_address` / `drama` / `drama_episode` 的四处本来就是应用层单独查、没有 SQL JOIN，整库挪走只改一个 JDBC URL。
 
 **不分表。** 热查询全部带 `token_address` 或 `trader_address` 走索引，千万行级别 MySQL 单表没有压力；分表只会把「按币查」「按人查」两种访问路径拆到两个维度上，得不偿失。
