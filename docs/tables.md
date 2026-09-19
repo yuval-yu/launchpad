@@ -200,7 +200,13 @@ launchpad_v2_token                                # 一个发射币一行；列�
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
   graduated_at           BIGINT                # = curve_closed_at
   creator_user_id        BIGINT                # 可空；空 = 卡片只显示地址。对外 deployerUser
-  og_key                 VARCHAR(160)          # OG 分组键 = 小写去空白的 name + "/" + 小写去空白的 symbol；同组里 launched_at 最早的币是 OG
+  og_key                 VARCHAR(160)          # OG 徽标的分组键，不是「是不是 OG」的标记。
+                                               #   写入：TokenLaunched 一到就无条件算 = 去空白小写(name) + "/" + 去空白小写(symbol)，
+                                               #        如「Lox ley / LOX」与「loxley / lox」都是 loxley/lox；name 或 symbol 为空则留 NULL（不知道名字谈不上同名首发）。
+                                               #        不看有没有同名币、不看先后，之后不改。
+                                               #   判定：读列表时现算，不存表。取这一页的 og_key 集合，查每个 key 下 (launch_block_number, launch_log_index) 最小的币，
+                                               #        命中的打 og = true。全新名字的币自己就是 OG；后来的同名仿盘 key 相同但发得晚，不打标。
+                                               #   来源 CRD 4.1「同名同代号首发，忽略大小写与空格」，现有 util/OgKey 与 MarketListService 的规则原样保留
   price_usd              DECIMAL(50,30)        # price_quote × 配对资产现价
   market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
   liquidity_usd          DECIMAL(20,8)         # liquidity_quote × 配对资产价
@@ -214,7 +220,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
                                                # UK  (token_address)
                                                # IDX (creator_address)                            Launches 页签
                                                # IDX (creator_user_id)                            发行者用户
-                                               # IDX (og_key)                                     OG 徽标：同名同代号的币里链上最早发射的那个打 OG 标（防仿盘），查「同组谁最早」用
+                                               # IDX (og_key)                                     OG 判定：WHERE og_key IN (这页的 key) ORDER BY launch_block_number, launch_log_index，一页一次查询
                                                # IDX (status, last_trade_at)                      列表：最近买入
                                                # IDX (status, market_cap_usd)                     列表：市值、已毕业分区
                                                # IDX (status, cum_volume_usd)                     列表：成交量（累计）
