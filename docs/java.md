@@ -29,9 +29,9 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **不做入库前过滤。** 工厂发的全收，没有「是不是我们的币」的判断。**认币**：曲线事件与 Swap 读 `payload.token.token`（契约必须），Transfer 的 `payload.address` 就是 token；没有 token 的成交消息直接 FAILED，那是契约错误，不做按 curve / poolId 反查的兜底（09-19 定，两条索引随之删除）。查不到 = 发币消息还没到 → WAITING_TOKEN，TokenLaunched 投影后按币重投。
 
-**批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条：一条 `INSERT IGNORE … VALUES (…),(…)` 落审计，再按 `(blockNumber, logIndex)` 逐条投影，整批 ack；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
+**批量消费 + 分区并行。** `listener.type: batch`，一次 poll 100～500 条，批内**逐条**落审计再投影，整批 ack（不做一条 `INSERT IGNORE` 批量落审计：批量插入拿不到每行的自增 id，而投影要用它；也给不出「这一批里到底哪条失败」的准确下标——只有失败那条及其后的记录该被重试，前面已成功的不该重来）；`listener.concurrency` = 分区数。投影仍逐条独立事务，失败只标那一行。
 
-**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败、**`chainId` 与配置不符**的消息发到 `launchpad.chain.events.DLT`，内部接口按 offset 区间回灌。现在前两种情况只剩一行日志，消息等于丢了。
+**死信 topic。** `DefaultErrorHandler` 换成 `DeadLetterPublishingRecoverer`：写审计表重试耗尽、解析失败、**`chainId` 与配置不符**的消息发到 `launchpad.chain.events.DLT`，内部接口按**时间范围**回灌（运维知道的是「几点到几点」，不是 offset）；回灌走正常的入库入口，链 id 不符的消息回灌后仍然不符，只计入「仍失败」，不再写回死信。现在前两种情况只剩一行日志，消息等于丢了。
 
 **chainId 只做一件事。** 只接一条链，`chainId` 在消息、每张表、唯一键里都保留，但 Java 里唯一用它的地方是解析层：不等于 admin 配置的链就进死信，不落审计表。这是防「测试网的 Envio 误配到主网库」的护栏；除此之外任何代码不许按 chainId 分支。
 
@@ -84,7 +84,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 1. **set 型状态带水位线。** 币行分两组：成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，Transfer 类列（`total_supply` / `holder_count`）用 `supply_state_*`，各自只在事件的 `(block_number, log_index)` **大于**本组水位线时才写并推进；余额表的 `balance` 一个水位线。分两组是因为两组由不同事件写，共用一个会让一条迟到的 Transfer 被更新的成交挡掉，`holder_count` 停在旧值。更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推。**`status` 与毕业时间不走水位线**：它们单向，用「还在曲线阶段才写」的条件——毕业后的 Swap 会把成交水位线推到比 CurveCompleted 更新，共用条件会让迟到的 CurveCompleted 永远写不进去、币停在曲线分区；Rescued 同理。CurveCompleted 带的关闭时储备两列（纯存档）归成交组水位线，被挡下也无妨。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
 3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_v2_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_v2_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
-4. **「币还没到」不设重试上限。** 成交、Transfer 先于 TokenLaunched 到达时进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功后立即按币重投它们。
+4. **「币还没到」不设重试上限。** 所有依赖币行的事件（成交、Transfer、CurveCompleted、毕业三事件）先于 TokenLaunched 到达时，按老做法会进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功**并提交之后**立即按币、按链上顺序重投它们。handler 的约定：先查币行，查不到立刻抛 `TokenNotReadyException`（事务回滚），不要写到一半才抛。等待行如果永远等不到币，就一直停在 `WAITING_TOKEN`，从各状态行数的指标上看得见。
 
 不需要处理的：`launchpad_v2_trade` insert-only；`launchpad_v2_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
 
@@ -127,7 +127,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 | 入口 | 用途 |
 |---|---|
 | `POST /internal/…/chain-events/replay` ids | 现有，保留 |
-| `?tokenAddress=` | 修某个币：该币全部事件按链上顺序重投（新加的 `token_address` 列） |
+| `POST /internal/…/chain-events/replay/by-token` | 修某个币：该币全部事件按链上顺序重投（新加的 `token_address` 列）。单次上限 5000 条，到顶返回下一段的游标续跑；按（区块号，日志序号）游标翻页而不是 offset——重投会改 status，offset 在边读边改下会漏行 |
 | `?eventName=&fromBlock=&toBlock=` | 改了某个 handler 后重投这一类；异步，进度落 Redis |
 | `POST /internal/…/rebuild` | 全量重建：truncate 事实表 + 派生表 → 按链上顺序回放全部审计行。**必须连事实表一起清**，否则 insertIfAbsent 返回 false、派生表不动 |
 | `POST /internal/…/dlt/replay?from=&to=` | 死信回灌 |
