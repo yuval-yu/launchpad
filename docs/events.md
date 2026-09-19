@@ -66,7 +66,7 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 ## 源码核实的结论
 
 - **metadata 在发币事件里。** `TokenLaunched` 直接带 name / symbol / logo / description / socials，不需要取 URI
-- **socials 里有专门的 `storyFun` 字段**，注释是「Story.Fun profile or launch page URL」。叙事绑定应该解析它，`website` 只是普通官网
+- **socials 里有专门的 `storyFun` 字段**，注释是「Story.Fun profile or launch page URL」。我们约定它填内容键 `drama_{id}` / `video_{id}`（不是 URL，09-19 定），叙事绑定只认它；`website` 只是普通官网，不解析
 - **退款不含在成交额里。** `CurveBuy.grossQuoteIn` 的注释明写「excluding any refund」，`CurveBuyRefunded` 只在终局买入、多付的部分原路退回时发。不用扣
 - **买卖双方分开。** `CurveBuy(buyer, recipient, …)`、`CurveSell(seller, recipient, …)`；经 TradeRouter 买时 buyer 是路由、recipient 是用户，「买入取 recipient」这条规则成立
 - **成交后价格可以从事件精确推出。** 曲线是常数乘积，定价储备 = `initialVirtualQuoteReserve + trackedNetQuote` 与 `VIRTUAL_TOKEN_OFFSET + trackedTokens`，两个 tracked 值就是买入 `netQuoteIn`、卖出 `grossQuoteOut`、进出代币量的累加，常数在 `LaunchDefaults` 里

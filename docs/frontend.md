@@ -23,7 +23,7 @@ title: 8 · 每个现有接口的字段落在哪
 | `GET /assets/balances/tokens` | `launchpad_v2_balance` 按 holder，`holder_kind = USER` 且 `balance > 0`，只留币行里有的币 | 无。`balance` 字符串原值、`balanceDecimal` 除精度；`stage` ← 币行 `status`、`priceUsd` / `marketCapUsd` / `priceChange24h` ← 币行；`valueUsd` 读时算；**每行与顶层 `syncedAt` 都取 `launchpad_v2_indexer_state.processed_block_time`**（余额截至 Envio 处理到的区块，余额表本身不存时间） |
 | `GET /assets/balances/quote-tokens` | 不读表，后端查链（[第 2 页](/facts)的例外） | 形状不变。来源从 QuickNode + Blockscout 换成只查链：原生币 `eth_getBalance`，名单内代币 `balanceOf`；30 秒缓存；查不到又没有旧值的那一行余额与 `syncedAt` 为 null；`priceUsd` ← `launchpad_v2_coin_price` 最新行 |
 | `GET /analytics/overview` | `launchpad_v2_protocol_day` + `launchpad_v2_token` | 无。`volumeUsd` 不再因为漏拍快照而 null；没配价源的配对资产那部分成交不计入 |
-| 币↔叙事绑定 | `launchpad_v2_token_content` | 无。来自发币事件 `socials.storyFun` 的路径，为空再看 `website` |
+| 币↔叙事绑定 | `launchpad_v2_token_content` | 无。来自发币事件的 `socials.storyFun`：`drama_{id}` 或 `video_{id}`，为空 = 没绑。`website` 不参与绑定，原样存、原样返回 |
 | `GET /0x/gasless/*` | — | 无。暂时保留，原样不动 |
 
 ## K 线五档的数据源

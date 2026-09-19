@@ -105,8 +105,8 @@ Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查�
 | `args.symbol` | 【原始】【必须】代号。同上 | 已有 |
 | `args.logo` | 【原始】【必须】币图 URI。卡片、详情 | 已有 |
 | `args.description` | 【原始】【必须】简介。详情 | 已有 |
-| `args.socials.storyFun` | 【原始】【必须】Story.Fun 发射页 URL。**叙事绑定的唯一依据**：解析 `/drama/{id}` 或 `/video/{id}` | 已有 |
-| `args.socials.website` | 【原始】【必须，可空串】官网。详情页展示 | 已有 |
+| `args.socials.storyFun` | 【原始】【必须，可空串】**叙事绑定的唯一依据**，由前端发币时写入（09-19 定，已与前端对齐）：短剧 `drama_{dramaId}`、短视频 `video_{videoId}`，空串 = 没有绑定剧集。不是 URL | 已有 |
+| `args.socials.website` | 【原始】【必须，可空串】官网。原样存库、详情页原样展示，**不做任何解析，不参与叙事绑定** | 已有 |
 | `args.socials.twitter` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.socials.telegram` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.socials.discord` | 【原始】【必须，可空串】详情页展示 | 已有 |
@@ -123,7 +123,7 @@ Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查�
   "creatorFeeRecipient": "0x2bf5…7675", "creatorTaxBps": "50", "buybackEnabled": false,
   "name": "Loxley", "symbol": "LOX", "logo": "https://…/lox.png", "description": "…",
   "socials": { "website": "", "twitter": "", "telegram": "", "discord": "", "farcaster": "",
-               "storyFun": "https://story.fun/drama/1024" }
+               "storyFun": "drama_1024" }
 },
 "derived": { "initialVirtualQuoteReserve": "1000000000000000000",
              "graduationQuoteThreshold": "4000000000000000000" }

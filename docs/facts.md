@@ -14,7 +14,7 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 | **交易者是谁**：用整笔收据里本币 Transfer 的净流量穿透路由 / 中继（[第 3 页](/envio)）。Java 单看一条消息看不到整笔 tx，上一版放 Java 就是认不准 v4 买家的原因 | 交易者对应哪个平台用户；Activity 按谁查 |
 | 成交后曲线的两个储备与由此推出的价格；每次 Transfer 后双方的余额、总供应、正余额地址数 | 现在值多少美元、市值、24h 量、涨跌：**要乘配对资产的价**，只能 Java 算 |
 | 池内 Swap 里本币是 currency0 还是 currency1、方向、两侧金额；费用按 BPS 拆成基础费 / 创作者税 / 反狙击税 | 持有人数剔哪些合约、发行者持仓占比 |
-| 发币事件原文：metadata、socials（含 `storyFun`）、creator | 发行者对应哪个平台用户、`storyFun` 路径绑到哪部剧、OG 是谁 |
+| 发币事件原文：metadata、socials（含 `storyFun`）、creator | 发行者对应哪个平台用户、`storyFun`（`drama_{id}` / `video_{id}`）绑到哪部剧、OG 是谁 |
 | 每条消息带确认深度之后才发 | 「曲线一关就算毕业」这类状态名 |
 
 ## Java 里不许出现的东西
