@@ -59,10 +59,10 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
   pool_id                CHAR(66)              # 池内成交才有：在哪个 Uniswap 池成交的
   token_amount           DECIMAL(65,0)         # 成交了多少枚发射币（最小单位，未除精度）
   quote_amount           DECIMAL(65,0)         # 用户实际付出（买）或实际收到（卖）的配对资产数量（最小单位），含手续费。**这是成交额**
-  net_quote_amount       DECIMAL(65,0)         # 去掉手续费后真正进出曲线储备的配对资产数量（最小单位）；算这笔的均价用它
+  net_quote_amount       DECIMAL(65,0)         # 去掉手续费后真正进出曲线储备的配对资产数量（最小单位）；算这笔的均价用它。买入取进储备的净额，卖出取离开储备的毛额；池内成交没有这一项，为空
   fee_amount             DECIMAL(65,0)         # 这笔一共扣了多少手续费（配对资产最小单位）；本期不拆分不展示，只存档
   quote_amount_whole     DECIMAL(36,18)        # quote_amount 除以配对资产精度后的「整枚」数，直接可读，比如 1.5 ETH 或 200 USDG
-  avg_price_quote        DECIMAL(50,30)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount；持仓成本按它算
+  avg_price_quote        DECIMAL(50,30)        # 这笔的成交均价：每枚发射币花了多少配对资产 = net_quote_amount ÷ token_amount，不含手续费；只用来展示这一笔。持仓成本与盈亏不用它，用实付 / 实收（quote_amount、amount_usd）：买完立刻卖，手续费造成的亏损要体现出来
   price_quote            DECIMAL(50,30)        # 这笔成交完成后币的最新价：一枚发射币值多少配对资产；K 线的点用它
   quote_usd_price        DECIMAL(20,8)         # 成交那一刻一枚配对资产值多少美元（取价格历史表里区块时间之前最近的一条）；从未有过价才 NULL
   amount_usd             DECIMAL(20,8)         # 这笔成交折成美元是多少 = quote_amount_whole × quote_usd_price
@@ -185,7 +185,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   rescued_at             BIGINT                # LaunchGraduationRescued
   pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接）；不建索引，Swap 消息自带 token，不按它反查
   swept_quote / swept_token DECIMAL(65,0)      # 曲线关闭时交给毕业流程的配对资产 / 本币数量
-  quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变
+  quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变。列是 NOT NULL DEFAULT 0：「还没成交过」和「净募集为 0」都是 0，有意如此（同组的价与流动性在没成交过时是空）
   liquidity_quote        DECIMAL(65,0)         # 这个币现在的流动性有多少，以配对资产计（最小单位）：曲线阶段 = quote_reserve × 2（Java 算），毕业后由消息给；乘配对资产美元价就是 liquidity_usd
   price_quote            DECIMAL(50,30)        # 币的最新价：一枚发射币值多少配对资产，来自最近一笔成交
   trade_state_block / trade_state_log BIGINT / INT   # 成交类列（price_quote / quote_reserve / liquidity_quote）的水位线：只接受更新的事件（乱序保护）
