@@ -61,7 +61,7 @@ if (inserted) {                                               // 累加型只走
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
-| TokenLaunched | `launchpad_v2_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
+| TokenLaunched | `launchpad_v2_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1`，并把 `supply_state_*` 水位线设成这条发币事件的位置（铸币的 Transfer 扫链不发，发币就是供应类列的起点）。`storyFun` 填了但认不出路径时**不**回落 `website`，只在它为空时才看 `website`；绑不上只 WARN，币照收 | — |
 | CurveBuy / CurveSell | `launchpad_v2_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；累加型里含 `cum_volume_usd`（VOLUME 排序键）；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |

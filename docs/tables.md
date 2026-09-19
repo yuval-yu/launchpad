@@ -6,7 +6,7 @@ title: 7 · 从零建表：十一张
 
 线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V2__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
-约定：金额最小单位 `DECIMAL(65,0)`；**每枚币的价格（无论配对资产计还是美元计）一律 `DECIMAL(50,30)`**——10 亿供应的币价量级是 1e-15 ETH，18 位小数只剩三四位有效数字，8 位小数直接成 0（09-19 审）；整笔金额类（成交额、市值、流动性、成交量的 USD）`DECIMAL(20,8)`；配对资产自身的美元价 `DECIMAL(20,8)`；地址小写 `CHAR(42)`、哈希 / bytes32 小写 `CHAR(66)`、`event_id`，**这些列一律 `CHARACTER SET ascii COLLATE ascii_bin`**（内容永远是 ASCII，utf8mb4 下索引按 4 倍宽度算，改后索引缩到四分之一、比较不走大小写折叠）；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
+约定：金额最小单位 `DECIMAL(65,0)`；**每枚币的价格（无论配对资产计还是美元计）一律 `DECIMAL(50,30)`**——10 亿供应的币价量级是 1e-15 ETH，18 位小数只剩三四位有效数字，8 位小数直接成 0（09-19 审）；整笔金额类（成交额、市值、流动性、成交量的 USD）`DECIMAL(20,8)`；配对资产自身的美元价 `DECIMAL(20,8)`；地址小写 `CHAR(42)`、哈希 / bytes32 小写 `CHAR(66)`、`event_id`，**这些列一律 `CHARACTER SET ascii COLLATE ascii_bin`**（内容永远是 ASCII，utf8mb4 下索引按 4 倍宽度算，改后索引缩到四分之一、比较不走大小写折叠）；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）；唯一的例外是总共只有一行的 `launchpad_v2_indexer_state`，它的 `UK (chain_id)` 就是「一条链一行」这条约束本身。
 
 四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等；余额是消息给的绝对值，也归这类）、**派生**（只由成交事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
 
@@ -201,6 +201,8 @@ launchpad_v2_token                                # 一个发射币一行；列�
   graduated_at           BIGINT                # = curve_closed_at
   creator_user_id        BIGINT                # 可空；空 = 卡片只显示地址。对外 deployerUser
   og_key                 VARCHAR(160)          # OG 徽标的分组键，不是「是不是 OG」的标记。
+                                               #   生成时去掉的「空白」按 Unicode 算（含全角空格、NBSP）；不做全角→半角折叠，「ＬＯＸ」与「LOX」不同组。
+                                               #   名称 128 + 分隔符 + 代号 32 最长 161，超出列宽按字符截到 160（不劈开代理对），写不进去不该让整个币收不进来。
                                                #   写入：TokenLaunched 一到就无条件算 = 去空白小写(name) + "/" + 去空白小写(symbol)，
                                                #        如「Lox ley / LOX」与「loxley / lox」都是 loxley/lox；name 或 symbol 为空则留 NULL（不知道名字谈不上同名首发）。
                                                #        不看有没有同名币、不看先后，之后不改。

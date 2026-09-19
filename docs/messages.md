@@ -76,7 +76,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `txHash` | 【必须】交易哈希，小写。成交表唯一键；前端跳区块浏览器 | 已有 |
 | `txFrom` | 【必须】交易发起人，小写（Envio 要开 `transaction_fields: [from]`）。备查列，排查中继 / 路由问题时用 | **缺** |
 | `removed` | 【必须】恒 `false`。语义保留，Java 收到 `true` 只留审计不投影 | 已有（语义待定，见上表「确认」） |
-| `payload.address` | 【必须】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 | 已有 |
+| `payload.address` | 【必须，Heartbeat 除外】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 | 已有 |
 | `payload.signature` | 【可选】规范签名。审计用；没有同名重载，不靠它路由 | 缺（可选，不催） |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 | 已有 |
 | `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（配对资产精度、阈值、初始储备）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
