@@ -4,7 +4,7 @@ title: 7 · 从零建表：十一张
 
 # 从零建表：十一张
 
-线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V1__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
+线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V2__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
 约定：金额最小单位 `DECIMAL(65,0)`；**每枚币的价格（无论配对资产计还是美元计）一律 `DECIMAL(50,30)`**——10 亿供应的币价量级是 1e-15 ETH，18 位小数只剩三四位有效数字，8 位小数直接成 0（09-19 审）；整笔金额类（成交额、市值、流动性、成交量的 USD）`DECIMAL(20,8)`；配对资产自身的美元价 `DECIMAL(20,8)`；地址小写 `CHAR(42)`、哈希 / bytes32 小写 `CHAR(66)`、`event_id`，**这些列一律 `CHARACTER SET ascii COLLATE ascii_bin`**（内容永远是 ASCII，utf8mb4 下索引按 4 倍宽度算，改后索引缩到四分之一、比较不走大小写折叠）；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
 
@@ -161,7 +161,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；按地址从运营名单（admin 的 quoteTokens 配置）取，名单里没有为 NULL
   quote_asset_decimals   TINYINT               # 配对资产的精度（ETH 18、USDG 6），所有配对资产金额换整枚都靠它；按地址从运营名单（admin Redis）取，名单里没有为 NULL，整枚数 / USD 留空并告警
   quote_config_hash      CHAR(66)
-  launch_config_id       INT
+  launch_config_id       INT UNSIGNED
   curve_fee_bps          SMALLINT UNSIGNED
   creator_tax_bps        SMALLINT UNSIGNED
   tick_spacing           INT
@@ -288,6 +288,6 @@ launchpad_v2_token_content                        # 币 ↔ 叙事绑定，Token
 
 其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
 
-**分区要提前建。** RANGE 分区的表，落进不存在的月份会插入失败（或落进 MAXVALUE 兜底分区，那个分区以后 DROP 不掉）。一个每月跑的任务：给两张分区表 `ADD PARTITION` 到未来两个月，并把审计表三个月前的分区 `DROP`；建表脚本里先建到上线后第三个月。
+**分区要提前建。** RANGE 分区的表，落进不存在的月份会插入失败（或落进 MAXVALUE 兜底分区，那个分区以后 DROP 不掉）。建表脚本带一个 `p_max`（MAXVALUE）兜底分区，保证任何时候都插得进去；有它在就不能 `ADD PARTITION`，所以一个每月跑的任务用 `REORGANIZE PARTITION p_max INTO (新月份, p_max)` 给两张分区表往前扩到未来两个月（`p_max` 只要还是空的，这一步不搬数据），并把审计表三个月前的分区 `DROP`；建表脚本里先建到上线后第三个月。
 
 **可选的进一步减肥**：Transfer 是消息的大头、又只用来 set 余额，可以只落审计行不存 `raw_message`（Envio 的 `raw_events` 才是原文），`chain_event` 体积再降一半以上。要不要这么做等第一个月看真实量再定。
