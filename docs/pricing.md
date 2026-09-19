@@ -13,18 +13,21 @@ interface PriceSource {
     String name();                                              // 落 launchpad_v2_coin_price.source
     Map<String, CoinPriceQuote> fetchSpot(List<QuoteToken> assets);   // 一轮取一批；失败返回空 map，不抛
 }
-// CoinPriceService.refresh()：按 admin 名单每个资产的 priceSource 分组 → 各源一次调用 → 合并 → 落库
+// CoinPriceService.refresh()：按下表把名单里的资产分到各个源 → 各源一次调用 → 合并 → 落库
 ```
 
-admin 的 `chainlinks[chain].tokens[*]` 加 `priceSource` 字段，与已有的 `isStock` 同级，取值即路由：
+路由**不加配置字段**，由名单里已有的信息定（09-19 定）：
 
-| 资产 | priceSource | 候选来源 | 说明 |
+| 资产 | 怎么认出来 | 来源 | 说明 |
 |---|---|---|---|
-| 稳定币 USDG / USDC | `FIXED_1` | 常量 1 | 不发请求 |
-| 原生 ETH / WETH / cbBTC | `EXCHANGE` | 交易所公开行情 ETHUSDT / BTCUSDT | 币安拒美区 IP（dev / test 在俄亥俄取不到，prod 东京可用），备选 Coinbase `ETH-USD`。**具体选哪家待定**，按 profile 定死一家，不做故障切换。`BinanceCoinPriceSource` 在 `backup/dev-before-cmc-refactor-20260910` 分支里 |
-| 股票代币 NVDA / AAPL / TSLA | `RH_STOCK` | Robinhood `GET /rhj/prices/{symbol}` bid / ask 中间价 × `/assets` 的 `currentMultiplier` | `isTradingHalt` 为真给 null；`deployments[]` 里 4663 的合约地址与名单按地址对上 |
-| 链上有 Chainlink 喂价的 | `CHAINLINK` | 让 Envio 顺手订阅 `AnswerUpdated` 发消息 | 可选；不引入 Java 侧 RPC |
-| 没配的 | `NONE` | — | USD 字段一律 null，前端显示「—」。**不猜、不回落、来源之间不互相兜底** |
+| 稳定币 USDG | 代码里写死的代号集合（目前只有 `USDG`） | 常量 1 | 不发请求，每分钟照样落一行，`source = FIXED_1` |
+| 股票代币 NVDA / AAPL / TSLA / AMZN | 名单里 `isStock: true` | Robinhood `GET /rhj/prices/{symbol}`，bid / ask 中间价 × `/assets` 的 `currentMultiplier` | 代号就是名单的 `symbol`；`isTradingHalt` 为真这一轮不落行（沿用上一个价）。**第一批先用录制的响应做单测，真实调用后接**，接上之前股票配对的币 USD 为 null |
+| 其余：ETH / WETH / cbBTC | 既不是稳定币也不是股票 | 交易所现货，**币安主、Coinbase 备** | 交易对代号取名单里可选的 `priceSymbol`，没填就用 `symbol`：WETH 填 `ETH`，cbBTC 填 `BTC`，ETH 不用填。币安 `{priceSymbol}USDT`，Coinbase `{priceSymbol}-USD` |
+| 名单里没有的配对资产 | — | — | USD 字段一律 null，前端显示「—」，不猜 |
+
+admin 的 `chainlinks[chain].tokens[*]` **只加一个可选字段 `priceSymbol`**，与 `isStock` 同级；不加 `priceSource`。
+
+**主备规则（只此一条）**：每一轮先问币安；这一轮失败（超时、非 200、HTTP 451 拒区）就当轮改问 Coinbase；两家都失败这一轮不落行，读侧自然沿用上一个价。不记「上次谁成功」，不做熔断，下一轮照样先问币安。币安拒美区 IP，dev / test 在俄亥俄实际每轮都走 Coinbase，prod 东京走币安；落库的 `source` 列记这一行实际来自哪家。`BinanceCoinPriceSource` 在 `backup/dev-before-cmc-refactor-20260910` 分支里可以参考。
 
 频率每分钟；**每分钟一行**，六个资产一年约三百万行；原生币与 WETH 同价，各落一行。
 
@@ -76,5 +79,5 @@ Optional<BigDecimal> currentPrice(String asset);                    // 最新一
 ::: warning
 **历史价只来自我们自己每分钟落的行**，不依赖任何历史价 API。取价永远是「已知的最近一行」，停机期间用停机前的价，事后不补。
 
-**每种资产只有一个价源，不互相兜底。** 交易所挂了只影响 ETH 系资产，Robinhood 挂了只影响股票代币，各自 null。
+**主备只在 ETH 系的两家交易所之间，类与类之间不互相兜底。** 两家交易所都挂了只影响 ETH 系资产，Robinhood 挂了只影响股票代币，各自沿用上一个价；从来没有过价的才是 null。
 :::

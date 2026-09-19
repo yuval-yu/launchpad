@@ -15,11 +15,11 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 | `service/chain/handler/*` | **新** | 九种事件的 handler，见下 |
 | `service/activity/*` · `controller/ActivityController` · `job/ActivityResolveJob` · `chain/decode/*` | **删** | 前端上报整条链路；`ActivityWriter` 的两来源合并退化成 insertIfAbsent |
 | `cmc/*` · `market/source/*` · `service/market/MarketRefreshService` / `Trigger` · `job/MarketSweepJob` / `CmcQuotaMonitor` | **删** | CMC 全部 |
-| `chain/ChainRpcClient` · `RpcContractProbe` · web3j 依赖 | **删** | Java 不再调 RPC |
+| `chain/ChainRpcClient` | **缩** | 只留 `eth_getBalance` 与 ERC-20 `balanceOf` 两个方法，只给配对资产余额接口用（[第 2 页](/facts)的例外）；其余方法、`RpcContractProbe`、`decode/*` 删 |
 | `explorer/*` · `service/assets/BalanceSnapshotService` | **删** | Blockscout |
 | `price/CmcDexPriceSource` → `price/PriceSource` 接口 + 实现 | **换** | 按资产路由；`CoinPriceService` 加 `priceAt` |
 | `service/market/KlineService` · `MarketFeedService` · `TokenDetailService` · `service/assets/*` · `AnalyticsService` | **改** | 改读自家表，接口形状不变 |
-| `zeroex/*` · `controller/ZeroExGaslessController` | **移出** | 和合约交互挂钩的透传不留在 launchpad，见[第 10 页](/rollout) Q2 |
+| `zeroex/*` · `controller/ZeroExGaslessController` | **不动** | 暂时保留（09-19 定）；只转发前端请求，不读链 |
 | `job/*` 定时线 | **改** | 线一定价（有）、线二币视图（新）、线三滚动窗口（新） |
 | `controller/internal/*` | **改** | 回放加按币、按事件、全量重建；死信回灌 |
 
@@ -116,7 +116,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 | `/assets/activity` | 旧 `launchpad_activity` | `launchpad_v2_trade` 按 trader；trader 为 null 的不出 |
 | `/assets/positions` `/assets/history`（新） | — | `launchpad_v2_position` / `launchpad_v2_trade` 卖出行 |
 | `/assets/balances/tokens` | Blockscout | `launchpad_v2_balance` 按 holder，只留发射币 |
-| `/assets/balances/quote-tokens` | QuickNode + Blockscout | **下线**，前端直接读链（[第 10 页](/rollout) Q1）；launchpad 不保留 RPC |
+| `/assets/balances/quote-tokens` | QuickNode + Blockscout | **保留，后端查链**：`eth_getBalance` + 名单内 ERC-20 `balanceOf`，30 秒缓存，失败给旧值；Blockscout 去掉。边界见[第 2 页](/facts) |
 | `/analytics/overview` | 整点快照 | `launchpad_v2_protocol_day` 90 天 + 币表按日数 |
 | `POST /activities` `GET /activities/{id}` | — | **删除** |
 
@@ -139,9 +139,9 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 
 - **上报链路**：`controller/ActivityController`、`controller/internal/ActivityAdminController`、`service/activity/{ActivityReportService, ActivityResolveService, ActivityResolveTrigger, ActivityProperties, ActivityConfirmedEvent, RepositoryTokenLookup}`、`job/ActivityResolveJob`、`config/ActivityAsyncConfig`、`dto/activity/*`、`enums/ActivityStatus`、`chain/decode/{ReceiptDecoder, TokenLookup, PoolToken, TokenNetFlow, CurveTrades, ContractProbe}`、yml `launchpad.activity.*`、`docs/adr/0002`
 - **CMC**：`cmc/*`、`market/source/*`、`config/{CmcConfig, MarketSourceConfig, MarketRefreshAsyncConfig}`、`service/market/{MarketRefreshService, MarketRefreshTrigger}`、`job/{MarketSweepJob, CmcQuotaMonitor}`、`price/CmcDexPriceSource`、yml `launchpad.cmc.*`、`CMC_API_KEY`
-- **一切链上处理**：`chain/**` 整个包（`ChainRpcClient`、`RpcContractProbe`、`ChainProperties`、`decode/*` 含 `ChainEvents` 的 topic 常量）、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`。仓库里不再有 ABI、事件签名、`eth_*` 字样
+- **链上处理**：`chain/` 包里除缩减后的 `ChainRpcClient` 之外的全部（`RpcContractProbe`、`decode/*` 含 `ChainEvents` 的 topic 常量），`ChainRpcClient` 里查余额之外的方法。仓库里不再有 ABI、事件签名；`eth_*` 只剩 `eth_getBalance` 与 `eth_call(balanceOf)`。`LaunchpadConfigService.rpcHttpUrl` 与 HTTP 客户端依赖因此保留
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
 - **PONS 时代的契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
 - **表**：新表全部 `launchpad_v2_` 前缀，按[第 7 页](/tables)新建；旧 `launchpad_*` 表不动，删不删以后再定；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
-- **测试**：上述模块的单测与 `MarketRefreshLiveIT` / `ChainRpcClientIT`；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
+- **测试**：上述模块的单测与 `MarketRefreshLiveIT`（`ChainRpcClientIT` 缩到只测查余额）；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
 - `CLAUDE.md`「行情」「币价与 USD 折算」「活动：两个来源」「链上余额」「链上事件」五节重写

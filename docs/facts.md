@@ -23,15 +23,25 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 
 | 不许有 | 现在放哪 |
 |---|---|
-| 任何 RPC 客户端、web3j、`eth_*` 调用、区块浏览器客户端 | Envio 的 Effect |
+| RPC 客户端、web3j、`eth_*` 调用、区块浏览器客户端 | Envio 的 Effect。**唯一例外**：配对资产余额接口，见表下 |
 | 合约常量 | 例外：`LaunchDefaults` 里编译死的三个全局常量（总供应 10 亿 × 1e18、精度 18、铸给曲线的初始余额）放 Java 的 `LaunchConstants`，不走消息；配对资产的精度 / 代号 / 图标由运营在 admin Redis 维护；阈值、初始储备是按币快照，随发币消息来 |
 | ABI、事件签名、topic 常量、日志解码 | Envio 的 handler |
 | 合约数学：曲线定价公式、`sqrtPriceX96` 换算、currency0 / currency1 判方向、费用按 BPS 拆分 | Envio 算好放进 `derived` |
 | ERC20 语义：余额累加、销毁减供应、正余额地址数 | Envio 维护内部 `Balance`，消息给**变动后的绝对值**，Java 只 set |
 | 交易者穿透、同 tx 事件配对 | Envio |
-| 配对资产的链上余额、0x 下单透传这类和合约交互挂钩的接口 | 不在 launchpad 里（[第 10 页](/rollout) Q1 / Q2） |
+| 0x 下单透传 | 暂时保留在 launchpad，原样不动；它只转发前端请求，不读链、不解析合约 |
 
 Java 里剩下的全是**对自家表的算术与业务口径**：USD 乘法、成交表求和、K 线分桶、持仓成本、叙事绑定、发行者反查、状态名。
+
+::: warning 唯一的例外：配对资产余额（09-19 定）
+`GET /assets/balances/quote-tokens` 要的是用户钱包里 ETH / USDG / 股票代币的余额，发射台事件覆盖不到，Envio 也不该为此去订全链的 Transfer。这个接口**保留，由后端查链**，边界圈死在五条里：
+
+1. 只服务这一个接口，别的代码不许引用这个客户端。
+2. 只有两种调用：`eth_getBalance` 与名单内 ERC-20 的 `balanceOf`（链上有 Multicall 就合并成一次）。不解析事件、不读收据、不碰发射台合约。
+3. RPC 端点沿用 admin 名单的 `chainlinks[chain].rpc.http`，不另配。
+4. 每个地址 30 秒缓存；查链失败给缓存里的旧值；旧值也没有，该行余额与 `syncedAt` 给 null，不报错。
+5. 平台发的币的余额仍然只读 `launchpad_v2_balance`，不走这条路。
+:::
 
 ## 一个币的四个链上状态
 
