@@ -62,7 +62,7 @@ if (inserted) {                                               // 累加型只走
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
 | TokenLaunched | `launchpad_v2_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_v2_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| CurveBuy / CurveSell | `launchpad_v2_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；累加型里含 `cum_volume_usd`（VOLUME 排序键）；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
@@ -98,7 +98,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 |---|---|---|---|---|
 | **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_v2_coin_price` 追加分钟行 | 每分钟 |
 | **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
-| **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close） | 币行两列 | 每分钟；没成交的币置 0 |
+| **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close）。两者只作展示，**排序用的是累计成交额 `cum_volume_usd` 与市值**，由 handler 与线二维护 | 币行两列 | 每分钟；没成交的币置 0 |
 
 协议数据页不需要定时线：`launchpad_v2_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。
 

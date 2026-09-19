@@ -10,7 +10,7 @@ title: 8 · 每个现有接口的字段落在哪
 
 | 接口 | 读哪张表 | 变化 |
 |---|---|---|
-| `GET /market/tokens/curve` · `/graduated` · `/search` | `launchpad_v2_token`，join 绑定与用户表 | 无。5 种排序、币龄窗口、⌘K 筛选不变；DTO 字段名不变，列名按合约改了（`pairAsset` ← `quote_asset_symbol`、`quoteRaised` ← `quote_reserve`、`deployer*` ← `creator_*`） |
+| `GET /market/tokens/curve` · `/graduated` · `/search` | `launchpad_v2_token`，join 绑定与用户表 | 排序口径一处变化：**`VOLUME` 按累计成交额排，不再按滚动 24h**（用户 09-19 定），参数名不变；市值排序不变；币龄窗口、⌘K 筛选不变；DTO 字段名不变，列名按合约改了（`pairAsset` ← `quote_asset_symbol`、`quoteRaised` ← `quote_reserve`、`deployer*` ← `creator_*`） |
 | `GET /coin/detail` | `launchpad_v2_token` + `launchpad_v2_coin_price` 最新行 + 绑定 + 用户 | 无。不再打开时同步刷；`liquidityUsd = liquidity_quote × 配对资产价` |
 | `GET /coin/kline` | M5 `launchpad_v2_trade` 逐笔；H1 / H6 / D1 `launchpad_v2_kline_minute`；ALL `launchpad_v2_kline_hour` | 无。五档窗口与颗粒不变；`stale` 恒 false |
 | `GET /coin/trades` | `launchpad_v2_trade` 按币倒序 | 游标从 CMC 的 lastId 换成 `(block_time, id)` 编码的不透明串，契约不变；`exchange` 给「曲线」或「Uniswap v4」；`amountUsd` 可为 null |

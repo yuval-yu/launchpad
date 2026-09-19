@@ -192,7 +192,8 @@ launchpad_v2_token                                # 一个发射币一行；列�
   supply_state_block / supply_state_log BIGINT / INT # Transfer 类列（total_supply / holder_count）的水位线，与上面分开：两组列由不同事件写，共用一个会让迟到的 Transfer 被新成交挡掉
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
-  cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)
+  cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(65,0)   # 累计成交量，配对资产计
+  cum_volume_usd         DECIMAL(20,8)         # 累计成交额（美元）= Σ 每笔 amount_usd，成交行首插成功时累加；**VOLUME 排序键**（用户 09-19 定：按总量排，不按 24h）
   holder_count           INT                   # 余额大于 0 的地址有多少个，含曲线、池子这些合约；展示时减掉非用户地址
 
   # ── 口径列：线二写（每分钟） ──
@@ -206,7 +207,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   creator_holding_pct    DECIMAL(9,4)          # balance(creator) ÷ total_supply；对外 deployerHoldingPct
 
   # ── 口径列：线三写（每分钟） ──
-  volume_usd_24h         DECIMAL(20,8)         # 滚动 24h Σ amount_usd；VOLUME 排序键；没成交置 0
+  volume_usd_24h         DECIMAL(20,8)         # 滚动 24h Σ amount_usd；只给卡片 / 详情展示，不作排序；没成交置 0
   price_change_24h       DECIMAL(12,4)
 
   created_at / updated_at BIGINT
@@ -218,7 +219,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
                                                # IDX (og_key)                                     OG 徽标
                                                # IDX (status, last_trade_at)                      列表：最近买入
                                                # IDX (status, market_cap_usd)                     列表：市值、已毕业分区
-                                               # IDX (status, volume_usd_24h)                     列表：成交量
+                                               # IDX (status, cum_volume_usd)                     列表：成交量（累计）
                                                # IDX (status, launched_at)                        列表：最新 / 最早
 
 launchpad_v2_coin_price                           # 配对资产美元价历史；线一每分钟追加；priceAt 与线二都读它
@@ -268,7 +269,7 @@ launchpad_v2_token_content                        # 币 ↔ 叙事绑定，Token
 
 ## 库与分区：建议
 
-**拆表信号。** `launchpad_v2_token` 是宽表，线二 / 线三每分钟改的六个热列（`price_usd` `market_cap_usd` `liquidity_usd` `volume_usd_24h` `price_change_24h` `last_trade_at`）上挂着四条列表排序索引。先靠「只写真变了的行」（[第 5 页](/java)定时线）压写入量；币数到十万、或线二一轮跑不完一分钟时，把这六列连同四条排序索引挪到 `launchpad_v2_token_stats`（一币一行），币表只剩静态与链上状态列。代价是列表查询多一次回表，所以没到那个量不拆。
+**拆表信号。** `launchpad_v2_token` 是宽表，线二 / 线三每分钟改的热列（`price_usd` `market_cap_usd` `liquidity_usd` `volume_usd_24h` `price_change_24h`）里，`market_cap_usd` 上挂着列表排序索引（成交量排序改按累计值后，那条索引只在有成交时才动）。先靠「只写真变了的行」（[第 5 页](/java)定时线）压写入量；币数到十万、或线二一轮跑不完一分钟时，把这六列连同四条排序索引挪到 `launchpad_v2_token_stats`（一币一行），币表只剩静态与链上状态列。代价是列表查询多一次回表，所以没到那个量不拆。
 
 **不建独立库（用户 09-18 定）。** 前期只有审计表大，体积靠按月分区 + 月度 `DROP PARTITION` 解决，其余表都在千万行以下，放 `mini_drama` 库即可。将来要不要拆，看两个信号：日成交稳定超过 5 万笔，或 `mini_drama` 实例上其他服务的慢查询能对应到 launchpad 的写入高峰。真要拆代价也小：launchpad 读 `users` / `user_wallet_address` / `drama` / `drama_episode` 的四处本来就是应用层单独查、没有 SQL JOIN，整库挪走只改一个 JDBC URL。
 
