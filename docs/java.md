@@ -128,12 +128,12 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 |---|---|
 | `POST /internal/…/chain-events/replay` ids | 现有，保留 |
 | `POST /internal/…/chain-events/replay/by-token` | 修某个币：该币全部事件按链上顺序重投（新加的 `token_address` 列）。单次上限 5000 条，到顶返回下一段的游标续跑；按（区块号，日志序号）游标翻页而不是 offset——重投会改 status，offset 在边读边改下会漏行 |
-| `?eventName=&fromBlock=&toBlock=` | 改了某个 handler 后重投这一类；异步，进度落 Redis |
-| `POST /internal/…/rebuild` | 全量重建：truncate 事实表 + 派生表 → 按链上顺序回放全部审计行。**必须连事实表一起清**，否则 insertIfAbsent 返回 false、派生表不动 |
+| `POST /internal/…/chain-events/replay/by-event`（`eventName`、`fromBlock`、`toBlock` 闭区间） | 改了某个 handler 后重投这一类；异步，立即返回任务 id，进度落 Redis（保留 7 天），`GET …/replay/tasks/{taskId}` 查。**区间给窄一点**：审计表没有按事件名的索引（不值得在最热的写入表上多维护一棵树），代价与区间内的总行数成正比，别用 `fromBlock=0` 扫全表 |
+| `POST /internal/…/chain-events/rebuild`（`confirm=REBUILD`，不对就 400） | 全量重建：`TRUNCATE` 成交、余额、持仓、两档 K 线、协议日统计、币行、叙事绑定八张表（价格历史、审计表、扫链状态表不清）→ 按链上顺序回放全部审计行；异步，同上查进度。**必须连事实表一起清**，否则 insertIfAbsent 返回 false、派生表不动。重建期间「币与内容已绑定」的 Kafka 通知整段抑制（绑定行被清空会让它重发一遍）；开始时暂停本节点的链上事件消费、结束时恢复——多节点时**执行前先停掉其它节点的消费**。表清空到重投完这段时间读接口的数据不完整，挑没人的时候跑 |
 | `POST /internal/…/dlt/replay?from=&to=` | 死信回灌 |
 | `ChainEventRetryJob` | 现有，保留；乱序场景靠它 |
 
-四种回放都走 `ChainEventProjector.project`，与首次消费同一入口。
+四种回放都走 `ChainEventProjector.project`，与首次消费同一入口。异步的两种（按事件、全量重建）同一时刻只允许一个在跑，已有任务时返回 409。
 
 ## 删除清单
 
