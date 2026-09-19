@@ -69,7 +69,7 @@ if (inserted) {                                               // 累加型只走
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
 | Transfer | — | `launchpad_v2_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
-| Heartbeat | 不落审计 | 内存里记 Envio 的 processedBlock / 时间，给 lag 告警与余额页 `syncedAt` | — |
+| Heartbeat | 不落审计 | `launchpad_v2_indexer_state` 一行 upsert（head_block / processed_block / processed_block_time / heartbeat_at）；lag 告警、余额页 `syncedAt`、Envio 是否活着都读它 | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 

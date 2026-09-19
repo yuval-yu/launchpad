@@ -293,12 +293,12 @@ Java 把 `launchpad_v2_balance` 两行 set 成消息里的绝对值；币行 set
 
 ### Heartbeat（不是合约事件，Envio 每分钟发一条）· 扫链未提供
 
-`eventName = "Heartbeat"`，`payload.args` 为空，`payload.derived` 如下；`eventId = v1:{chainId}:heartbeat:{processedBlock}`。不落审计表，Java 只更新内存里的「Envio 最近处理到哪」。
+`eventName = "Heartbeat"`，`payload.args` 为空，`payload.derived` 如下；`eventId = v1:{chainId}:heartbeat:{processedBlock}`。不落审计表，Java 只 upsert `launchpad_v2_indexer_state` 那一行（`heartbeat_at` 取接收时间）。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
 | `derived.headBlock` | 【解析】【必须】Envio 看到的链头区块号。与下一项的差 = Envio 落后多少，超阈值告警 | **缺** |
-| `derived.processedBlock` | 【解析】【必须】Envio 已处理完的区块号。Java 消费者 lag 告警的基准；资产页余额的 `syncedAt` 取它对应的区块时间 | **缺** |
+| `derived.processedBlock` | 【解析】【必须】Envio 已处理完的区块号。lag 告警的基准；资产页余额的 `syncedAt` 取它对应的区块时间；落 `launchpad_v2_indexer_state` | **缺** |
 | `derived.processedBlockTime` | 【解析】【必须】已处理区块的时间，秒。同上 | **缺** |
 
 没有它 Java 分不清「市场安静」和「Envio 停了」。

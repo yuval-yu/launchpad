@@ -1,8 +1,8 @@
 ---
-title: 7 · 从零建表：十张
+title: 7 · 从零建表：十一张
 ---
 
-# 从零建表：十张
+# 从零建表：十一张
 
 线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V1__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
@@ -229,6 +229,15 @@ launchpad_v2_coin_price                           # 配对资产美元价历史�
   priced_at              BIGINT                # 取整到分钟
   created_at             BIGINT
                                                # UK  (asset_address, priced_at)                   同一资产同一分钟只有一行，INSERT IGNORE 天然幂等；priceAt / 最新价也走它
+
+launchpad_v2_indexer_state                        # Envio 处理到哪，一条链一行；Heartbeat 消息 upsert（09-19 补：只落内存重启就丢，运维看不到）
+  chain_id               BIGINT                # 唯一键
+  head_block             BIGINT                # Envio 看到的链头区块号
+  processed_block        BIGINT                # Envio 已处理完的区块号；与上一项的差 = Envio 落后多少
+  processed_block_time   BIGINT                # 已处理区块的时间，毫秒；资产页余额的 syncedAt 取它
+  heartbeat_at           BIGINT                # 最近一条 Heartbeat 的接收时间；距今超阈值 = Envio 停了
+  updated_at             BIGINT
+                                               # UK  (chain_id)                                   一行
 
 launchpad_v2_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
   chain_id               BIGINT
