@@ -4,7 +4,7 @@ title: 7 · 从零建表：十张
 
 # 从零建表：十张
 
-线上数据不要了，旧表全部 DROP，按新方案重新设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库、`launchpad_` 前缀；**只有一个 migration `V1__launchpad_schema.sql`**，开头先 `DROP TABLE IF EXISTS` 全部 `launchpad_*` 旧表再建。
+线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V1__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，切换完成后在 P4 单独 DROP。
 
 约定：金额最小单位 `DECIMAL(65,0)`；以配对资产计的价格 `DECIMAL(36,18)`；USD `DECIMAL(20,8)`；地址小写 `CHAR(42)`；哈希 / bytes32 小写 `CHAR(66)`；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）。
 
@@ -13,7 +13,7 @@ title: 7 · 从零建表：十张
 ## 审计
 
 ```text
-launchpad_chain_event                          # 一条消息一行；唯一键 event_id；重放源
+launchpad_v2_chain_event                          # 一条消息一行；唯一键 event_id；重放源
   event_id               VARCHAR(160)          # v1:{chainId}:{blockHash}:{logIndex}:{removed}
   event_name             VARCHAR(64)           # ABI 事件名
   signature              VARCHAR(255)          # 规范签名
@@ -46,7 +46,7 @@ launchpad_chain_event                          # 一条消息一行；唯一键 
 ## 事实
 
 ```text
-launchpad_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
+launchpad_v2_trade                                # 一笔成交一行；只插入不更新（盈亏在插入前按持仓算好）
   chain_id               BIGINT
   tx_hash                CHAR(66)
   log_index              INT                   # 这条成交日志在区块里的序号；和 tx_hash 一起唯一标识一笔成交
@@ -81,7 +81,7 @@ launchpad_trade                                # 一笔成交一行；只插入�
                                                # IDX (block_time)                                 线三 24h、协议日
                                                # 按 block_time 月分区
 
-launchpad_balance                              # 一个（币, 地址）一行；Transfer 消息里的 fromBalance / toBalance 直接 set，不累加
+launchpad_v2_balance                              # 一个（币, 地址）一行；Transfer 消息里的 fromBalance / toBalance 直接 set，不累加
   chain_id               BIGINT
   token_address          CHAR(42)
   holder_address         CHAR(42)              # 持有地址
@@ -98,7 +98,7 @@ launchpad_balance                              # 一个（币, 地址）一行�
 ## 派生
 
 ```text
-launchpad_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
+launchpad_v2_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
   chain_id               BIGINT
   token_address          CHAR(42)
   trader_address         CHAR(42)              # 持有地址
@@ -116,7 +116,7 @@ launchpad_position                             # 一个（地址, 币）一行�
                                                # UK  (trader_address, token_address)
                                                # IDX (trader_address, last_trade_at DESC)         持仓页
 
-launchpad_kline_minute                         # 只有有成交的分钟才有行（用户 09-18 定）：桶由成交 handler upsert，没有任何定时任务补空桶
+launchpad_v2_kline_minute                         # 只有有成交的分钟才有行（用户 09-18 定）：桶由成交 handler upsert，没有任何定时任务补空桶
   chain_id               BIGINT
   token_address          CHAR(42)
   period_start           BIGINT                # 桶起点，整分钟，毫秒
@@ -132,9 +132,9 @@ launchpad_kline_minute                         # 只有有成交的分钟才有�
                                                # UK  (token_address, period_start)
                                                # IDX (period_start)                               线三跨币取窗口
 
-launchpad_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
+launchpad_v2_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
 
-launchpad_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
+launchpad_v2_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
   chain_id               BIGINT
   day_index              INT                   # floor(区块时间 / 86400)
   quote_asset_address    CHAR(42)              # 配对资产地址
@@ -147,7 +147,7 @@ launchpad_protocol_day                         # UTC 日 × 配对资产一行�
 ## 口径
 
 ```text
-launchpad_token                                # 一个发射币一行；列表与搜索只读它
+launchpad_v2_token                                # 一个发射币一行；列表与搜索只读它
 
   # ── 链上列：TokenLaunched / 毕业 / 成交 / Transfer handler 写 ──
   chain_id               BIGINT
@@ -219,7 +219,7 @@ launchpad_token                                # 一个发射币一行；列表�
                                                # IDX (status, volume_usd_24h)                     列表：成交量
                                                # IDX (status, launched_at)                        列表：最新 / 最早
 
-launchpad_coin_price                           # 配对资产美元价历史；线一每分钟追加；priceAt 与线二都读它
+launchpad_v2_coin_price                           # 配对资产美元价历史；线一每分钟追加；priceAt 与线二都读它
   asset_address          CHAR(42)              # 原生币用全零地址
   symbol                 VARCHAR(16)
   price_usd              DECIMAL(20,8)         # 股票代币已乘 currentMultiplier
@@ -228,7 +228,7 @@ launchpad_coin_price                           # 配对资产美元价历史；�
   created_at             BIGINT
                                                # IDX (asset_address, priced_at)                   priceAt / 最新价
 
-launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
+launchpad_v2_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
   chain_id               BIGINT
   token_address          CHAR(42)              # 代币地址
   content_type           VARCHAR(8)            # DRAMA / VIDEO
@@ -245,7 +245,7 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 
 ## 数据量：三档估算
 
-一笔成交平均带出 2.5 条消息（成交 + 1～2 条 Transfer）。`launchpad_chain_event` 每行含 `raw_message` 约 1.5 KB，其余表每行 100～300 B。
+一笔成交平均带出 2.5 条消息（成交 + 1～2 条 Transfer）。`launchpad_v2_chain_event` 每行含 `raw_message` 约 1.5 KB，其余表每行 100～300 B。
 
 | 日成交笔数 | 消息 / 天 | `chain_event` 一年 | `trade` 一年 | 其余表 |
 |---|---|---|---|---|
@@ -265,8 +265,8 @@ launchpad_token_content                        # 币 ↔ 叙事绑定，TokenLau
 
 | 表 | 分区键 | 保留 | 唯一键要求 |
 |---|---|---|---|
-| `launchpad_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求分区表的每个唯一索引（含主键）包含分区列：`uk (event_id, block_time)`、`pk (id, block_time)`。`block_time` 排在末尾，不参与查找，纯为满足规则。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
-| `launchpad_trade` | `block_time` 的月份 | 永久 | `uk (tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
+| `launchpad_v2_chain_event` | `block_time` 的月份 | 最近 3 个月保留原文；更早的整个分区 `DROP PARTITION`（Envio 可重扫重投） | MySQL 要求分区表的每个唯一索引（含主键）包含分区列：`uk (event_id, block_time)`、`pk (id, block_time)`。`block_time` 排在末尾，不参与查找，纯为满足规则。**不能用 `received_at` 分区**：同一 eventId 重复投递时 `received_at` 不同，唯一键就拦不住重复 |
+| `launchpad_v2_trade` | `block_time` 的月份 | 永久 | `uk (tx_hash, log_index, block_time)`、`pk (id, block_time)`，同一笔日志的 `block_time` 固定，去重不受影响 |
 
 其余表不分区。`DROP PARTITION` 是秒级元数据操作，比 `DELETE … WHERE` 清一亿行便宜几个数量级，这是分区的主要收益。
 

@@ -57,18 +57,18 @@ if (inserted) {                                               // 累加型只走
 }
 ```
 
-**`launchpad_trade` 只插入、不更新，一个例外。** 交易者、USD、盈亏全部在插入前定好：交易者来自消息，USD 按区块时间取价一次固化，盈亏用插入前锁住的持仓算。重复投递 `insertIfAbsent` 返回 false 不碰行；全量重建是 truncate 再插；USD 缺价不事后补。唯一的例外是**迟到成交触发的持仓重算**会重写同一对 (trader, token) 里卖出行的五个 `pnl_*` 列（见「乱序与补发」）。
+**`launchpad_v2_trade` 只插入、不更新，一个例外。** 交易者、USD、盈亏全部在插入前定好：交易者来自消息，USD 按区块时间取价一次固化，盈亏用插入前锁住的持仓算。重复投递 `insertIfAbsent` 返回 false 不碰行；全量重建是 truncate 再插；USD 缺价不事后补。唯一的例外是**迟到成交触发的持仓重算**会重写同一对 (trader, token) 里卖出行的五个 `pnl_*` 列（见「乱序与补发」）。
 
 | 事件 | 事实表 | set 型（无条件） | 累加型（首插成功才做） |
 |---|---|---|---|
-| TokenLaunched | `launchpad_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
-| CurveBuy / CurveSell | `launchpad_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
+| TokenLaunched | `launchpad_v2_token` insertSelective | 反查发行者用户（查不到留空）、解析 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1` | — |
+| CurveBuy / CurveSell | `launchpad_v2_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
 | V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
-| Swap | `launchpad_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
-| Transfer | — | `launchpad_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
+| Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
+| Transfer | — | `launchpad_v2_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
 | Heartbeat | 不落审计 | 内存里记 Envio 的 processedBlock / 时间，给 lag 告警与余额页 `syncedAt` | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
@@ -83,10 +83,10 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 
 1. **set 型状态带水位线。** 币行的 `price_quote` / `liquidity_quote` / `quote_reserve` / `total_supply` / `holder_count`，余额表的 `balance`，都只在事件的 `(block_number, log_index)` **大于**行上记录的水位线时才写，并推进水位线；更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推，`status` 单向。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
-3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
+3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_v2_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_v2_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
 4. **「币还没到」不设重试上限。** 成交、Transfer 先于 TokenLaunched 到达时进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功后立即按币重投它们。
 
-不需要处理的：`launchpad_trade` insert-only；`launchpad_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
+不需要处理的：`launchpad_v2_trade` insert-only；`launchpad_v2_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
 
 ::: tip 一句话验收标准
 把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
@@ -96,26 +96,26 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 
 | 线 | 输入 | 算 | 写 | 频率 |
 |---|---|---|---|---|
-| **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_coin_price` 追加分钟行 | 每分钟 |
+| **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_v2_coin_price` 追加分钟行 | 每分钟 |
 | **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
-| **三 · 滚动窗口** | `launchpad_trade` 最近 24h + `launchpad_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close） | 币行两列 | 每分钟；没成交的币置 0 |
+| **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close） | 币行两列 | 每分钟；没成交的币置 0 |
 
-协议数据页不需要定时线：`launchpad_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。
+协议数据页不需要定时线：`launchpad_v2_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。
 
 ## 读接口换表
 
 | 接口 | 现在读 | 改读 |
 |---|---|---|
-| `/market/tokens/*` `/search` | `launchpad_token` | 不变 |
+| `/market/tokens/*` `/search` | `launchpad_v2_token` | 不变 |
 | `/coin/detail` | 币行 + CMC 同步刷 | 币行，不再刷；`priceInPair = price_quote` |
-| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_trade` 逐笔；H1 / H6 / D1 读 `launchpad_kline_minute`；ALL 读 `launchpad_kline_hour` 按跨度合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。LTTB 与档位映射保留 |
-| `/coin/trades` | CMC lastId 游标 | `launchpad_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
-| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
-| `/assets/activity` | `launchpad_activity` | `launchpad_trade` 按 trader；trader 为 null 的不出 |
-| `/assets/positions` `/assets/history`（新） | — | `launchpad_position` / `launchpad_trade` 卖出行 |
-| `/assets/balances/tokens` | Blockscout | `launchpad_balance` 按 holder，只留发射币 |
+| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_v2_trade` 逐笔；H1 / H6 / D1 读 `launchpad_v2_kline_minute`；ALL 读 `launchpad_v2_kline_hour` 按跨度合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。LTTB 与档位映射保留 |
+| `/coin/trades` | CMC lastId 游标 | `launchpad_v2_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
+| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_v2_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
+| `/assets/activity` | 旧 `launchpad_activity` | `launchpad_v2_trade` 按 trader；trader 为 null 的不出 |
+| `/assets/positions` `/assets/history`（新） | — | `launchpad_v2_position` / `launchpad_v2_trade` 卖出行 |
+| `/assets/balances/tokens` | Blockscout | `launchpad_v2_balance` 按 holder，只留发射币 |
 | `/assets/balances/quote-tokens` | QuickNode + Blockscout | **下线**，前端直接读链（[第 10 页](/rollout) Q1）；launchpad 不保留 RPC |
-| `/analytics/overview` | 整点快照 | `launchpad_protocol_day` 90 天 + 币表按日数 |
+| `/analytics/overview` | 整点快照 | `launchpad_v2_protocol_day` 90 天 + 币表按日数 |
 | `POST /activities` `GET /activities/{id}` | — | **删除** |
 
 每个读接口前面 Redis 短缓存（几秒），只用来合并并发。
@@ -140,6 +140,6 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 - **一切链上处理**：`chain/**` 整个包（`ChainRpcClient`、`RpcContractProbe`、`ChainProperties`、`decode/*` 含 `ChainEvents` 的 topic 常量）、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`。仓库里不再有 ABI、事件签名、`eth_*` 字样
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
 - **PONS 时代的契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
-- **表**：全部旧 `launchpad_*` 表 DROP，按[第 7 页](/tables)重建；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
+- **表**：新表全部 `launchpad_v2_` 前缀，按[第 7 页](/tables)新建；旧 `launchpad_*` 表在切换完成后 DROP；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
 - **测试**：上述模块的单测与 `MarketRefreshLiveIT` / `ChainRpcClientIT`；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
 - `CLAUDE.md`「行情」「币价与 USD 折算」「活动：两个来源」「链上余额」「链上事件」五节重写

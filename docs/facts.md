@@ -10,7 +10,7 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 
 | Envio · 解码与补字段 | Java · 事实落库、派生、口径、USD |
 |---|---|
-| 分区键：同一个币的所有事件落同一分区（curve / poolId → token 的映射 Envio 有，Java 也有：`launchpad_token` 存了 `curve_address` 与 `pool_id`） | 这笔算买还是卖、计不计入成交额、含不含税 |
+| 分区键：同一个币的所有事件落同一分区（curve / poolId → token 的映射 Envio 有，Java 也有：`launchpad_v2_token` 存了 `curve_address` 与 `pool_id`） | 这笔算买还是卖、计不计入成交额、含不含税 |
 | **交易者是谁**：用整笔收据里本币 Transfer 的净流量穿透路由 / 中继（[第 3 页](/envio)）。Java 单看一条消息看不到整笔 tx，上一版放 Java 就是认不准 v4 买家的原因 | 交易者对应哪个平台用户；Activity 按谁查 |
 | 成交后曲线的两个储备与由此推出的价格；每次 Transfer 后双方的余额、总供应、正余额地址数 | 现在值多少美元、市值、24h 量、涨跌：**要乘配对资产的价**，只能 Java 算 |
 | 池内 Swap 里本币是 currency0 还是 currency1、方向、两侧金额；费用按 BPS 拆成基础费 / 创作者税 / 反狙击税 | 持有人数剔哪些合约、发行者持仓占比 |
@@ -66,6 +66,6 @@ Java 存三个时间戳 `curve_closed_at` / `pool_created_at` / `rescued_at`，`
 | 剔除协议合约后的持有人数、发行者持仓占比 | Java 由余额表按 `holder_kind` 算；地址是什么 kind 由 Envio 给 |
 | 滚动 24h | Java 线三 |
 | 叙事绑定、OG、发行者是哪个平台用户 | Java 线二 |
-| 持仓成本与盈亏 | Java 成交 handler 维护 `launchpad_position` |
+| 持仓成本与盈亏 | Java 成交 handler 维护 `launchpad_v2_position` |
 | 配对资产的余额 | 不索引：全链 WETH / USDG 持有者是发射台事件的几十倍；资产页那一份怎么来见[第 10 页](/rollout)待定项 |
 | 费用 / 回购 / 治理类事件 | 只留 `raw_events`，本期不发消息 |

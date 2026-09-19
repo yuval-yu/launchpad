@@ -79,15 +79,15 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 | 合约 · 事件 | 参数 | Envio 补的 derived | Java 落到哪 |
 |---|---|---|---|
-| **LaunchFactory.TokenLaunched** | token, curve, creator, launchSalt, quoteAsset, quoteConfigHash, launchConfigId, curveFeeBps, tickSpacing, creatorFeeRecipient, creatorTaxBps, buybackEnabled, name, symbol, logo, description, socials | initialVirtualQuoteReserve, graduationQuoteThreshold | `launchpad_token` 插入；`storyFun` 绑叙事 |
-| **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | quoteReserve, priceQuote；trader 可选（名义地址是合约时才给） | `launchpad_trade`；币行储备 / 价格；position / kline / protocol_day |
+| **LaunchFactory.TokenLaunched** | token, curve, creator, launchSalt, quoteAsset, quoteConfigHash, launchConfigId, curveFeeBps, tickSpacing, creatorFeeRecipient, creatorTaxBps, buybackEnabled, name, symbol, logo, description, socials | initialVirtualQuoteReserve, graduationQuoteThreshold | `launchpad_v2_token` 插入；`storyFun` 绑叙事 |
+| **BondingCurve.CurveBuy** | buyer, recipient, grossQuoteIn, netQuoteIn, tokensOut, fee | quoteReserve, priceQuote；trader 可选（名义地址是合约时才给） | `launchpad_v2_trade`；币行储备 / 价格；position / kline / protocol_day |
 | **BondingCurve.CurveSell** | seller, recipient, tokensIn, grossQuoteOut, netQuoteOut, fee | 同上 | 同上，position 结一笔已实现盈亏 |
 | **BondingCurve.CurveCompleted** | recipient, quoteAmount, tokenAmount + token.token | — | 币行 `curve_closed_at` / `swept_quote` / `swept_token`，status = GRADUATED |
 | **GraduatedPoolHook.PoolRegistered** | poolId, token, quoteAsset | — | 币行 `pool_id` |
 | **V4GraduationReceiver.V4PoolGraduated** | token, curve, poolId, positionId, sqrtPriceX96, liquidity, quoteAmount, tokenAmount, tokenDust, quoteDust | priceQuote（池初始价）, liquidityQuote | 币行 `pool_created_at` / `pool_id` / `price_quote` |
 | **LaunchFactory.LaunchGraduationRescued** | token, recipient, quoteAmount, tokenAmount | — | 币行 `rescued_at`，status = RESCUED。**产品要定这种币怎么展示** |
-| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | side, trader（必须）, tokenAmount, quoteAmount, priceQuote, liquidityQuote | `launchpad_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
-| **LaunchToken.Transfer** | from, to, value | fromBalance, toBalance, totalSupply, positiveBalanceCount（变动后绝对值） | `launchpad_balance` set；币行 `total_supply` / `holder_count` set |
+| **PoolManager.Swap**（v4 核心，只发我们的池） | id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee | side, trader（必须）, tokenAmount, quoteAmount, priceQuote, liquidityQuote | `launchpad_v2_trade`（POOL）；币行 `price_quote` / `pool_liquidity` |
+| **LaunchToken.Transfer** | from, to, value | fromBalance, toBalance, totalSupply, positiveBalanceCount（变动后绝对值） | `launchpad_v2_balance` set；币行 `total_supply` / `holder_count` set |
 
 同 tx 不需要配对：费用拆分本期不做，每种成交事件各自独立发。
 

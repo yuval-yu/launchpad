@@ -19,7 +19,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 :::
 
 ::: info
-**版本** · v6（本版）：Envio 退回扫链工具，实体、Hasura 读路径、handler 里的取价 Effect 全部作废；Java 保留「Kafka → 审计表 → 投影」的代码骨架，表全部从零建（线上数据不要了，旧表 DROP）。v5.1 及更早只在 git 历史里。
+**版本** · v6（本版）：Envio 退回扫链工具，实体、Hasura 读路径、handler 里的取价 Effect 全部作废；Java 保留「Kafka → 审计表 → 投影」的代码骨架，表全部从零建，前缀 `launchpad_v2_`（线上数据不要了，旧表切换后 DROP）。v5.1 及更早只在 git 历史里。
 :::
 
 ## 数据怎么流、在哪生成
@@ -48,7 +48,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <text x="660" y="88" style="fill:var(--vp-c-text-2);font-size:11px">PriceSource 路由，落分钟行</text>
 <line x1="880" y1="75" x2="928" y2="75" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 <rect x="930" y="50" width="220" height="50" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
-<text x="940" y="70" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_coin_price</text>
+<text x="940" y="70" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_v2_coin_price</text>
 <text x="940" y="88" style="fill:var(--vp-c-text-2);font-size:11px">价格历史，唯一价源</text>
 
 <rect x="20" y="160" width="190" height="60" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
@@ -99,7 +99,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 
 <line x1="880" y1="162" x2="928" y2="162" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 <rect x="930" y="140" width="220" height="44" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
-<text x="940" y="157" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_chain_event</text>
+<text x="940" y="157" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_v2_chain_event</text>
 <text x="940" y="172" style="fill:var(--vp-c-text-2);font-size:11px">原文 · 状态 · 重放源</text>
 
 <line x1="880" y1="252" x2="928" y2="252" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
@@ -113,11 +113,11 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 
 <line x1="880" y1="318" x2="928" y2="340" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
 <rect x="930" y="326" width="220" height="60" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
-<text x="940" y="344" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_token</text>
+<text x="940" y="344" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_v2_token</text>
 <text x="940" y="360" style="fill:var(--vp-c-text-2);font-size:11px">链上列 ← handler · 口径列 ← 线二 / 线三</text>
 <text x="940" y="376" style="fill:var(--vp-c-text-3);font-size:10.5px">列表排序、搜索、join 平台表</text>
 <rect x="930" y="400" width="220" height="36" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
-<text x="940" y="422" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_token_content</text>
+<text x="940" y="422" fill="currentColor" style="font-family:var(--vp-font-family-mono);font-size:11.5px;font-weight:500">launchpad_v2_token_content</text>
 <polyline points="930,376 918,376 918,383 882,383" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ar)"/>
 
 <rect x="650" y="490" width="230" height="44" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
@@ -134,7 +134,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 </svg>
 
 ::: info 图说
-**三条数据生成路径。** ① 链上事件 → Envio 解码、补字段 → Kafka → Java 审计表 → handler 写事实表，并在事实行首次插入成功时推进派生表；成交的 USD 按区块时间从价格历史取，写下就不再变。 ② 外部价源 → Java 线一 → `launchpad_coin_price`，全站唯一价源。 ③ 线二、线三读派生表与价格表，把现价类 USD、绑定、滚动 24h 写回 `launchpad_token`。读接口全部查 MySQL。
+**三条数据生成路径。** ① 链上事件 → Envio 解码、补字段 → Kafka → Java 审计表 → handler 写事实表，并在事实行首次插入成功时推进派生表；成交的 USD 按区块时间从价格历史取，写下就不再变。 ② 外部价源 → Java 线一 → `launchpad_v2_coin_price`，全站唯一价源。 ③ 线二、线三读派生表与价格表，把现价类 USD、绑定、滚动 24h 写回 `launchpad_v2_token`。读接口全部查 MySQL。
 :::
 
 ## 分层
@@ -143,7 +143,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 - **Envio**（扫链 · 我们自己部署）：工厂地址写死，curve 与发射币用 `contractRegister` 动态注册。handler 解码事件、用一份**最小内部状态**（curve / poolId → token，两个曲线储备）补上 Java 单看一条消息定不了的字段、把同 tx 的配对事件合并，然后经 effect 发 Kafka。**不建业务实体、不算 USD、不出 GraphQL**，见[第 3 页](/envio)。
 - **Kafka**（`launchpad.chain.events`）：分区键 token，同币有序、至少一次投递。消息格式见[第 4 页](/messages)。
 - **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 十个 handler；十张新表（审计 / 事实 / 派生 / 口径）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
-- **MySQL**（`mini_drama` 库 · `launchpad_` 前缀）：审计表、币表、事实表、派生表、价格表、绑定表，见[第 7 页](/tables)。
+- **MySQL**（`mini_drama` 库 · `launchpad_v2_` 前缀）：审计表、币表、事实表、派生表、价格表、绑定表，见[第 7 页](/tables)。
 - **前端**：接口形状不变；`POST /activities` 下线。
 
 ## 这套分工换来什么

@@ -86,7 +86,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，缺 derived
 
-Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；名单里没有这个配对资产时币照收，金额只存最小单位原值，整枚数与 USD 留空并告警，运营补配置后由线二回填。
+Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；名单里没有这个配对资产时币照收，金额只存最小单位原值，整枚数与 USD 留空并告警，运营补配置后由线二回填。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -131,7 +131,7 @@ Java 插入 `launchpad_token`，解析 `socials.storyFun` 绑叙事，反查发�
 
 ### CurveBuy（BondingCurve）· 扫链已提供，缺 derived
 
-Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；币行 set 净募集、价格、最近成交，流动性 = 净募集 × 2。
+Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日；币行 set 净募集、价格、最近成交，流动性 = 净募集 × 2。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -161,7 +161,7 @@ Java 写 `launchpad_trade`（CURVE / BUY）、持仓、K 线桶、协议日；�
 
 ### CurveSell（BondingCurve）· 扫链已提供，缺 derived
 
-Java 写 `launchpad_trade`（CURVE / SELL），持仓结一笔已实现盈亏，其余同买入。
+Java 写 `launchpad_v2_trade`（CURVE / SELL），持仓结一笔已实现盈亏，其余同买入。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -229,7 +229,7 @@ Java 写币行 `rescued_at`，`status = RESCUED`。
 
 ### Swap（PoolManager，只发我们的池）· 扫链未提供
 
-Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。扫链 `cbcf16e` 已加 PoolManager 的 ABI，应该在路上。
+Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。扫链 `cbcf16e` 已加 PoolManager 的 ABI，应该在路上。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -264,7 +264,7 @@ Java 写 `launchpad_trade`（POOL）、持仓、K 线桶、协议日；币行 se
 
 ### Transfer（LaunchToken，只发发射币）· 扫链未提供
 
-Java 把 `launchpad_balance` 两行 set 成消息里的绝对值；币行 set `total_supply` / `holder_count`。**不累加**，所以重放、重复投递无副作用；同币消息有序是前提。扫链的 `config.yaml` 已订阅了 LaunchToken 的 Transfer（还有 Approval，不需要），但没有 handler、没有消息。
+Java 把 `launchpad_v2_balance` 两行 set 成消息里的绝对值；币行 set `total_supply` / `holder_count`。**不累加**，所以重放、重复投递无副作用；同币消息有序是前提。扫链的 `config.yaml` 已订阅了 LaunchToken 的 Transfer（还有 Approval，不需要），但没有 handler、没有消息。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|

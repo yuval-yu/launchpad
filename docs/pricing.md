@@ -10,7 +10,7 @@ title: 6 · 只需要几个配对资产的价，其余全是乘法
 
 ```java
 interface PriceSource {
-    String name();                                              // 落 launchpad_coin_price.source
+    String name();                                              // 落 launchpad_v2_coin_price.source
     Map<String, CoinPriceQuote> fetchSpot(List<QuoteToken> assets);   // 一轮取一批；失败返回空 map，不抛
 }
 // CoinPriceService.refresh()：按 admin 名单每个资产的 priceSource 分组 → 各源一次调用 → 合并 → 落库
@@ -38,7 +38,7 @@ admin 的 `chainlinks[chain].tokens[*]` 加 `priceSource` 字段，与已有的 
 | 建池那一刻 | `V4PoolGraduated.sqrtPriceX96` | Envio 换算成「一枚本币值多少配对资产」，已按 currency0 / 1 方向与两侧精度处理 | `V4PoolGraduated` 消息的 `derived.priceQuote` |
 | 毕业后 | Uniswap v4 池里本币 ↔ 配对资产的价，**只在 Swap 时变**（加减流动性不改价） | Envio：每笔 `Swap` 后的 `sqrtPriceX96` 换算 | `Swap` 消息的 `derived.priceQuote` |
 
-Java 收到就 set `launchpad_token.price_quote`，同时写进这笔 `launchpad_trade.price_quote` 与 K 线桶；线二每分钟乘配对资产现价得 `price_usd` / `market_cap_usd`。两笔 Swap 之间价格不动，库里的值就是链上的值，不用轮询池子。
+Java 收到就 set `launchpad_v2_token.price_quote`，同时写进这笔 `launchpad_v2_trade.price_quote` 与 K 线桶；线二每分钟乘配对资产现价得 `price_usd` / `market_cap_usd`。两笔 Swap 之间价格不动，库里的值就是链上的值，不用轮询池子。
 
 ::: tip 三点说明
 - **时效**：一笔 Swap 上链 → Envio 处理该区块并达到确认深度 → 消息到 Java → 落库，秒级；对列表和详情足够，K 线本来就按分钟分桶。
@@ -48,7 +48,7 @@ Java 收到就 set `launchpad_token.price_quote`，同时写进这笔 `launchpad
 
 ## 历史价：成交 handler 与定时线共用的一张表
 
-`launchpad_coin_price` 就是价格历史。**成交 handler 按区块时间读它**给每笔成交、每个桶固化 USD；线二读最新一行算现价类 USD。
+`launchpad_v2_coin_price` 就是价格历史。**成交 handler 按区块时间读它**给每笔成交、每个桶固化 USD；线二读最新一行算现价类 USD。
 
 ```java
 // CoinPriceService
@@ -69,7 +69,7 @@ Optional<BigDecimal> currentPrice(String asset);                    // 最新一
 | 现价、市值、流动性 | 配对资产**现价** | 线二，每分钟 UPDATE 全表 |
 | 24h 成交额 | 成交表里已固化的 `amount_usd` 求和 | 线三 |
 | K 线每个点、成交每一行、Activity 每一行、持仓成本 | 该笔**区块时间**的价 | 成交 handler |
-| 协议日成交额 | 每笔成交各自区块时间的价累加 | 成交 handler 写 `launchpad_protocol_day` |
+| 协议日成交额 | 每笔成交各自区块时间的价累加 | 成交 handler 写 `launchpad_v2_protocol_day` |
 
 ## 两条规则
 
