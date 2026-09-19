@@ -142,7 +142,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 - **Robinhood Chain**（source of truth · 自研发射台合约）：**我们对合约唯一的要求是「事件要发全」**，见[第 9 页](/events)。
 - **Envio**（扫链 · 我们自己部署）：工厂地址写死，curve 与发射币用 `contractRegister` 动态注册。handler 解码事件、用一份**最小内部状态**（curve / poolId → token，两个曲线储备）补上 Java 单看一条消息定不了的字段、把同 tx 的配对事件合并，然后经 effect 发 Kafka。**不建业务实体、不算 USD、不出 GraphQL**，见[第 3 页](/envio)。
 - **Kafka**（`launchpad.chain.events`）：分区键 token，同币有序、至少一次投递。消息格式见[第 4 页](/messages)。
-- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 十个 handler；十一张新表（审计 / 事实 / 派生 / 口径 / 状态）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
+- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 九个 handler；十一张新表（审计 / 事实 / 派生 / 口径 / 状态）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
 - **MySQL**（`mini_drama` 库 · `launchpad_v2_` 前缀）：审计表、币表、事实表、派生表、价格表、绑定表，见[第 7 页](/tables)。
 - **前端**：接口形状不变；`POST /activities` 下线。
 
