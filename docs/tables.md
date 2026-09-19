@@ -70,7 +70,7 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
   cost_usd_released      DECIMAL(20,8)         # 同上，美元口径
   pnl_quote              DECIMAL(36,18)        # 卖出才有：这次卖赚了或亏了多少配对资产 = 实收 − 当初成本
   pnl_usd                DECIMAL(20,8)         # 同上，美元口径
-  pnl_pct                DECIMAL(12,4)         # 同上，百分比：赚 / 亏了成本的百分之几
+  pnl_pct                DECIMAL(12,4)         # 同上，百分比：赚 / 亏了成本的百分之几。只有一列，跟配对资产那一套走；释放成本为 0（币全是转入来的）时为空；超出列宽时封顶
   block_number           BIGINT                # 成交在哪个区块
   block_time             BIGINT                # 成交时间（区块时间，毫秒）
   created_at             BIGINT                # 这行写进库的时间
@@ -102,8 +102,11 @@ launchpad_v2_position                             # 一个（地址, 币）一�
   chain_id               BIGINT
   token_address          CHAR(42)
   trader_address         CHAR(42)              # 持有地址
-  qty_traded             DECIMAL(65,0)         # 买入量 − 卖出量，只算成交
-  cost_quote             DECIMAL(36,18)        # 剩余成本，配对资产计
+  qty_traded             DECIMAL(65,0)         # 由成交推出的持有数量：买入加、卖出减，减到 0 为止（卖的币是转入 / 空投来的会超卖，不出现负数），所以它不一定等于 bought_qty − sold_qty
+  cost_quote             DECIMAL(36,18)        # 剩余成本，配对资产计。成本与所得一律取成交行的实付 / 实收（含费税），不用不含费的均价。
+                                               #   卖出释放的成本 = 剩余成本 × 卖出量 ÷ 卖出前数量；卖光那次直接结转全部剩余成本，归零不留尾数。
+                                               #   某一笔缺某个口径的金额（配对资产不在名单 → 没有整枚数；资产从未有过价 → 没有美元数）：买入按当时的均价并入，不稀释均价；
+                                               #   卖出照常释放成本，但这一笔该口径的盈亏留空、不计入已实现盈亏。清仓后这一行留着（全零），粉尘过滤由读接口做
   cost_usd               DECIMAL(20,8)
   bought_qty / sold_qty  DECIMAL(65,0)
   bought_quote / sold_quote DECIMAL(36,18)
