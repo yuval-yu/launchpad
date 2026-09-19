@@ -140,6 +140,6 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 - **一切链上处理**：`chain/**` 整个包（`ChainRpcClient`、`RpcContractProbe`、`ChainProperties`、`decode/*` 含 `ChainEvents` 的 topic 常量）、`config/ChainConfig`、web3j / okhttp 依赖、`LaunchpadConfigService.rpcHttpUrl`、yml `launchpad.chain.*`。仓库里不再有 ABI、事件签名、`eth_*` 字样
 - **Blockscout**：`explorer/*`、`config/ExplorerConfig`、`service/assets/{BalanceSnapshotService, NativeBalanceSnapshot, TokenBalanceSnapshot}`、yml `launchpad.explorer.*`、`docs/explorer-smoke.sh`
 - **PONS 时代的契约**：`service/chain/pons/*`、`service/chain/PairedAssetResolver`、`repository/IgnoredLaunchRepository`、`entity/IgnoredLaunch`、`enums/LaunchSource`、`pons.event` 监听与 `KafkaConstants.TOPIC_PONS_EVENT`、`docs/chan.msg.md`、`PonsEventMessage` / `PonsEventParser`（重写为 `ChainEvent*`）
-- **表**：新表全部 `launchpad_v2_` 前缀，按[第 7 页](/tables)新建；旧 `launchpad_*` 表在切换完成后 DROP；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
+- **表**：新表全部 `launchpad_v2_` 前缀，按[第 7 页](/tables)新建；旧 `launchpad_*` 表不动，删不删以后再定；`service/analytics/VolumeSnapshotService`、所有 entity / repository 按新列重写
 - **测试**：上述模块的单测与 `MarketRefreshLiveIT` / `ChainRpcClientIT`；`src/test/resources/{cmc, explorer}/*.json` 换成 `storyfun/*.json` 样例消息
 - `CLAUDE.md`「行情」「币价与 USD 折算」「活动：两个来源」「链上余额」「链上事件」五节重写

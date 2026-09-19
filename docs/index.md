@@ -19,7 +19,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 :::
 
 ::: info
-**版本** · v6（本版）：Envio 退回扫链工具，实体、Hasura 读路径、handler 里的取价 Effect 全部作废；Java 保留「Kafka → 审计表 → 投影」的代码骨架，表全部从零建，前缀 `launchpad_v2_`（线上数据不要了，旧表切换后 DROP）。v5.1 及更早只在 git 历史里。
+**版本** · v6（本版）：Envio 退回扫链工具，实体、Hasura 读路径、handler 里的取价 Effect 全部作废；Java 保留「Kafka → 审计表 → 投影」的代码骨架，表全部从零建，前缀 `launchpad_v2_`（线上数据不要了，旧表不动）。v5.1 及更早只在 git 历史里。
 :::
 
 ## 数据怎么流、在哪生成
