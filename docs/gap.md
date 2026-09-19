@@ -89,4 +89,4 @@ title: 11 · 与扫链现状的差距
 - 信封四个数值字段接受 JSON number（Java 解析层同时接受 number 与十进制字符串）
 - `payload.signature` 降为可选
 - 多发的 `CurveBuyRefunded` / `AutoGraduationFailed`：Java 无 handler 即 SKIPPED，不报错；但建议停发
-- 接受 `payload.token` 作为「Token 实体字段」的容器，Java 认币优先读 `payload.token.token`，没有再按 curve / poolId 反查
+- 接受 `payload.token` 作为「Token 实体字段」的容器，Java 认币只读 `payload.token.token`，不再按 curve / poolId 反查

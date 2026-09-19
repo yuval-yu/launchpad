@@ -154,7 +154,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   # ── 链上列：TokenLaunched / 毕业 / 成交 / Transfer handler 写 ──
   chain_id               BIGINT
   token_address          CHAR(42)
-  curve_address          CHAR(42)
+  curve_address          CHAR(42)              # 曲线合约地址，展示与排查用；不建索引，曲线消息自带 token，不按它反查
   creator_address        CHAR(42)              # TokenLaunched.creator；对外仍叫 deployerAddress
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
@@ -183,7 +183,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   curve_closed_at        BIGINT                # 曲线关闭时间（CurveCompleted）
   pool_created_at        BIGINT                # V4PoolGraduated
   rescued_at             BIGINT                # LaunchGraduationRescued
-  pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接、与 Swap 对照）；池的其它信息不存
+  pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接）；不建索引，Swap 消息自带 token，不按它反查
   swept_quote / swept_token DECIMAL(65,0)      # 曲线关闭时交给毕业流程的配对资产 / 本币数量
   quote_reserve          DECIMAL(65,0)         # 曲线阶段已经募到多少配对资产（最小单位，扣掉手续费后的净额）；毕业进度 = 它 ÷ graduation_threshold；曲线关闭后不再变
   liquidity_quote        DECIMAL(65,0)         # 这个币现在的流动性有多少，以配对资产计（最小单位）：曲线阶段 = quote_reserve × 2（Java 算），毕业后由消息给；乘配对资产美元价就是 liquidity_usd
@@ -200,7 +200,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推
   graduated_at           BIGINT                # = curve_closed_at
   creator_user_id        BIGINT                # 可空；空 = 卡片只显示地址。对外 deployerUser
-  og_key                 VARCHAR(160)
+  og_key                 VARCHAR(160)          # OG 分组键 = 小写去空白的 name + "/" + 小写去空白的 symbol；同组里 launched_at 最早的币是 OG
   price_usd              DECIMAL(50,30)        # price_quote × 配对资产现价
   market_cap_usd         DECIMAL(20,8)         # price_usd × total_supply；MARKET_CAP 与已毕业分区排序键
   liquidity_usd          DECIMAL(20,8)         # liquidity_quote × 配对资产价
@@ -212,11 +212,9 @@ launchpad_v2_token                                # 一个发射币一行；列�
 
   created_at / updated_at BIGINT
                                                # UK  (token_address)
-                                               # IDX (curve_address)                              曲线事件认币
-                                               # IDX (pool_id)                                    Swap 认币
                                                # IDX (creator_address)                            Launches 页签
                                                # IDX (creator_user_id)                            发行者用户
-                                               # IDX (og_key)                                     OG 徽标
+                                               # IDX (og_key)                                     OG 徽标：同名同代号的币里链上最早发射的那个打 OG 标（防仿盘），查「同组谁最早」用
                                                # IDX (status, last_trade_at)                      列表：最近买入
                                                # IDX (status, market_cap_usd)                     列表：市值、已毕业分区
                                                # IDX (status, cum_volume_usd)                     列表：成交量（累计）

@@ -141,7 +141,7 @@ Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日�
 | `args.netQuoteIn` | 【原始】【必须】进入定价储备的部分。均价 `avg_price_quote`，持仓成本用 | 已有 |
 | `args.tokensOut` | 【原始】【必须】用户拿到的本币。成交数量；持仓数量 | 已有 |
 | `args.fee` | 【原始】【必须】这笔扣的手续费总额（基础费 + 创作者税 + 反狙击税）。存档，本期不拆分不展示 | 已有 |
-| `token.token` | 【解析】【必须】这条曲线对应的发射币。Java 认币先读它，没有再用 `payload.address`（curve）反查 `curve_address` | 已有 |
+| `token.token` | 【解析】【必须】这条曲线对应的发射币。Java 只认它，不按 curve 反查 | 已有 |
 | `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `recipient`**——用户直接调曲线、经 TradeRouter 买，收币的都是用户本人。只有 `recipient` 是合约（0x Settler 这类聚合器自己收币再转给用户）时才需要 Envio 按整笔收据穿透后给出，规则见[第 3 页](/envio)。Activity、持仓、持有者归属都按它 | 缺（可选） |
 | `derived.quoteReserve` | 【解析】【必须】成交后曲线里的净募集（扣掉手续费后进了曲线的配对资产累计，Envio 按事件累加：买 `+= netQuoteIn`，卖 `-= grossQuoteOut`）。**毕业进度分子**（对外 `quoteRaised`）；曲线阶段的流动性 = 它 × 2 | **缺** |
 | `derived.priceQuote` | 【解析】【必须】成交后的曲线边际价，一枚本币值多少配对资产，十进制小数字符串；Envio 用累计的两个储备套曲线定价公式算，与合约 `getPricingReserves()` 两值相除一致。**币价**、K 线、市值 | **缺** |
@@ -241,7 +241,7 @@ Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行
 | `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 | **缺** |
 | `args.tick` | 【原始】【可选】存档 | **缺** |
 | `args.fee` | 【原始】【可选】池费率原值。存档 | **缺** |
-| `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 认币先读它，没有再用 `args.id` 反查 `pool_id` | **缺** |
+| `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 只认它，不按 poolId 反查 | **缺** |
 | `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 | **缺** |
 | `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity | **缺** |
 | `derived.tokenAmount` | 【解析】【必须】本币数量，绝对值，最小单位。成交数量 | **缺** |
