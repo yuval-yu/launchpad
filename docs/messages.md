@@ -19,8 +19,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | 解析字段 | 出现在 | Java 为什么不能自己来 |
 |---|---|---|
 | `trader` | Swap（必须）· CurveBuy · CurveSell（可选） | 池内 Swap 的 `sender` 是路由，事件里没有用户地址，只有看整笔交易里本币 Transfer 的净流量才能定；曲线事件缺省取 `recipient` / `seller`，只有名义地址是合约（0x Settler 这类）时才需要 Envio 穿透 |
-| `priceQuote` `quoteReserve` | CurveBuy · CurveSell | 事件里只有这笔的金额，成交后的状态不在事件里；边际价要套曲线定价公式（常数在合约里），净募集是 Envio 为算价格本来就维护的累计值，给绝对值比 Java 自己累加健壮（漏一条消息不会永远错下去） |
-| `graduationQuoteThreshold` `initialVirtualQuoteReserve` | TokenLaunched | 按 `quoteConfigHash` 查链上注册表（`QuoteAssetConfigured` 事件，Envio 自己订阅、自己存，不发给 Java）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标由运营在 admin Redis 里维护，不走消息 |
+| `curve.realQuoteReserve` `curve.virtualQuoteReserve` `curve.virtualTokenReserve` | CurveBuy · CurveSell | 事件里只有这笔的金额，成交后的状态不在事件里；储备是 Envio 按事件累加的绝对值，比 Java 自己累加健壮（漏一条消息不会永远错下去）。**边际价扫链不给，Java 用两个定价储备相除（用户 09-20 定）**——只是对消息里两个现成的数做一次除法，不碰 ABI、不查链 |
+| `curve.graduationQuoteThreshold` `curve.initialVirtualQuoteReserve` | TokenLaunched | 扫链在发币那个区块 `eth_call` 读曲线合约得到（原设想是按 `quoteConfigHash` 查注册表，取法归扫链定）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标由运营在 admin Redis 里维护，不走消息 |
 | `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `liquidityQuote` | V4PoolGraduated · Swap | 毕业后池的流动性，以配对资产计 = 池两侧按池价折成配对资产之和；v4 不存余额，要从 L 与 √P 推，是 Uniswap 数学。曲线阶段不需要：Java 用 `quoteReserve × 2` |
@@ -59,7 +59,8 @@ title: 4 · 消息契约：我们要什么字段、为什么要
     "signature": "CurveBuy(address,address,uint128,uint128,uint96,uint128)",
     "args": { "…": "ABI 具名参数，原样" },
     "token": { "token": "0xb0f0…d42e" },
-    "derived": { "…": "这一条事件算出来的字段，各事件不同" }
+    "curve": { "…": "曲线的状态：发币 = 两个按币快照的参数，买 / 卖 = 成交后的储备" },
+    "derived": { "…": "这一条事件算出来的其余字段，各事件不同" }
   }
 }
 ```
@@ -80,11 +81,12 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `payload.signature` | 【可选】规范签名。审计用；没有同名重载，不靠它路由 | 缺（可选，不催） |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 | 已有 |
 | `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（配对资产精度、阈值、初始储备）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
-| `payload.derived` | 【按事件】这一条事件算出来的字段，对象：trader、成交后价格与储备、流动性、余额。见各事件 | **缺**（所有事件都没有） |
+| `payload.curve` | 【曲线事件】从 Envio 的 Curve 实体拷出的曲线状态，对象，**字段名以扫链为准**（用户 09-20 定）。发币：`graduationQuoteThreshold` / `initialVirtualQuoteReserve`；买 / 卖：成交后的 `realQuoteReserve` / `virtualQuoteReserve` / `virtualTokenReserve`（另有两个我们不读的）。见各事件 | 已有（`de9ac1b`） |
+| `payload.derived` | 【按事件】这一条事件算出来的其余字段，对象：trader、池内成交的方向 / 数量 / 价 / 流动性、Transfer 后的余额。曲线阶段只剩可选的 `trader`。见各事件 | **缺**（所有事件都没有） |
 
 ## 九种事件
 
-### TokenLaunched（LaunchFactory）· 扫链已提供，缺 derived
+### TokenLaunched（LaunchFactory）· 扫链已提供，字段齐
 
 Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；名单里没有这个配对资产时币照收，金额只存最小单位原值，整枚数与 USD 留空并告警，运营补配置后由线二回填。
 
@@ -112,8 +114,8 @@ Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查�
 | `args.socials.discord` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.socials.farcaster` | 【原始】【必须，可空串】详情页展示 | 已有 |
 | `args.launchSalt` | 【原始】【可选】CREATE2 salt。存档 | 已有 |
-| `derived.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母 | **缺** |
-| `derived.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 | **缺** |
+| `curve.graduationQuoteThreshold` | 【解析】【必须】毕业阈值。进度条分母。扫链放在 `payload.curve`（09-20 起字段以扫链为准） | 已有 |
+| `curve.initialVirtualQuoteReserve` | 【解析】【必须】初始虚拟储备。存档、核对 | 已有 |
 
 ```json
 "args": {
@@ -125,11 +127,11 @@ Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查�
   "socials": { "website": "", "twitter": "", "telegram": "", "discord": "", "farcaster": "",
                "storyFun": "drama_1024" }
 },
-"derived": { "initialVirtualQuoteReserve": "1000000000000000000",
-             "graduationQuoteThreshold": "4000000000000000000" }
+"curve": { "initialVirtualQuoteReserve": "1000000000000000000",
+           "graduationQuoteThreshold": "4000000000000000000" }
 ```
 
-### CurveBuy（BondingCurve）· 扫链已提供，缺 derived
+### CurveBuy（BondingCurve）· 扫链已提供，字段齐
 
 Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日；币行 set 净募集、价格、最近成交，流动性 = 净募集 × 2。
 
@@ -143,8 +145,9 @@ Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日�
 | `args.fee` | 【原始】【必须】这笔扣的手续费总额（基础费 + 创作者税 + 反狙击税）。存档，本期不拆分不展示 | 已有 |
 | `token.token` | 【解析】【必须】这条曲线对应的发射币。Java 只认它，不按 curve 反查 | 已有 |
 | `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `recipient`**——用户直接调曲线、经 TradeRouter 买，收币的都是用户本人。只有 `recipient` 是合约（0x Settler 这类聚合器自己收币再转给用户）时才需要 Envio 按整笔收据穿透后给出，规则见[第 3 页](/envio)。Activity、持仓、持有者归属都按它 | 缺（可选） |
-| `derived.quoteReserve` | 【解析】【必须】成交后曲线里的净募集（扣掉手续费后进了曲线的配对资产累计，Envio 按事件累加：买 `+= netQuoteIn`，卖 `-= grossQuoteOut`）。**毕业进度分子**（对外 `quoteRaised`）；曲线阶段的流动性 = 它 × 2 | **缺** |
-| `derived.priceQuote` | 【解析】【必须】成交后的曲线边际价，一枚本币值多少配对资产，十进制小数字符串；Envio 用累计的两个储备套曲线定价公式算，与合约 `getPricingReserves()` 两值相除一致。**币价**、K 线、市值 | **缺** |
+| `curve.realQuoteReserve` | 【解析】【必须】成交后曲线里的净募集（= 合约 `trackedNetQuote`；Envio 按事件累加：买 `+= netQuoteIn`，卖 `-= grossQuoteOut`）。**毕业进度分子**（对外 `quoteRaised`）；曲线阶段的流动性 = 它 × 2 | 已有 |
+| `curve.virtualQuoteReserve` · `curve.virtualTokenReserve` | 【解析】【必须】成交后的两个定价储备，与合约 `getPricingReserves()` 一致。**扫链不给现成的价，由 Java 算（用户 09-20 定）**：`priceQuote = virtualQuoteReserve ÷ virtualTokenReserve × 10^(18 − 配对资产精度)`，30 位小数 HALF_UP；配对资产不在运营名单（精度未知）时价留空。**币价**、K 线、市值 | 已有 |
+| `curve.realTokenReserve` · `curve.remainingSellableTokens` | 【解析】【不读】扫链多给的，我们没有读者 | 已有 |
 
 ```json
 "payload": {
@@ -154,12 +157,14 @@ Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日�
             "grossQuoteIn": "100000000000000", "netQuoteIn": "99000000000000",
             "tokensOut": "714285714285714285714285715", "fee": "1000000000000" },
   "token": { "token": "0x3d7e…4cdd" },
-  "derived": { "trader": "0x2bf5…7675",
-               "quoteReserve": "99000000000000", "priceQuote": "0.000000000000140" }
+  "curve": { "realQuoteReserve": "99000000000000", "realTokenReserve": "…",
+             "remainingSellableTokens": "…",
+             "virtualQuoteReserve": "1000099000000000000", "virtualTokenReserve": "…" },
+  "derived": { "trader": "0x2bf5…7675" }
 }
 ```
 
-### CurveSell（BondingCurve）· 扫链已提供，缺 derived
+### CurveSell（BondingCurve）· 扫链已提供，字段齐
 
 Java 写 `launchpad_v2_trade`（CURVE / SELL），持仓结一笔已实现盈亏，其余同买入。
 
@@ -173,8 +178,8 @@ Java 写 `launchpad_v2_trade`（CURVE / SELL），持仓结一笔已实现盈亏
 | `args.fee` | 【原始】【必须】这笔扣的手续费总额。存档，本期不拆分不展示 | 已有 |
 | `token.token` | 【解析】【必须】同 CurveBuy | 已有 |
 | `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `seller`**；只有 `seller` 是合约时才需要 Envio 按整笔收据净流出最大的地址给出 | 缺（可选） |
-| `derived.quoteReserve` | 【解析】【必须】同 CurveBuy | **缺** |
-| `derived.priceQuote` | 【解析】【必须】同 CurveBuy | **缺** |
+| `curve.realQuoteReserve` | 【解析】【必须】同 CurveBuy | 已有 |
+| `curve.virtualQuoteReserve` · `curve.virtualTokenReserve` | 【解析】【必须】同 CurveBuy | 已有 |
 
 ### CurveCompleted（BondingCurve）· 扫链已提供，字段齐
 
@@ -320,6 +325,6 @@ Java 把 `launchpad_v2_balance` 两行 set 成消息里的绝对值；币行 set
 
 ## 兼容规则
 
-- `eventName` = ABI 名，`args` 字段名 = ABI 参数名，Envio 不改名；`token` / `derived` 字段名以本页为准
+- `eventName` = ABI 名，`args` 字段名 = ABI 参数名，Envio 不改名；`token` / `curve` 的字段名**以扫链的 `envio/docs` 为准**（用户 09-20 定），`derived` 字段名以本页为准
 - 加字段不算破坏；改名、删字段、改类型要换 `eventId` 前缀版本（`v1` → `v2`）并双写一段时间
-- Java 的 `ChainEventParser` 只校验信封；`args` / `token` / `derived` 由各 handler 用 `requireArg` 取，本页标【必须】的缺了进 FAILED
+- Java 的 `ChainEventParser` 只校验信封；`args` / `token` / `curve` / `derived` 由各 handler 取，本页标【必须】的缺了进 FAILED
