@@ -97,12 +97,12 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 | 线 | 输入 | 算 | 写 | 频率 |
 |---|---|---|---|---|
 | **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_v2_coin_price` 追加分钟行 | 每分钟 |
-| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`；新绑定钱包的发行者补 `creator_user_id` | 币行口径列 | 每分钟，一条 UPDATE 全表 |
-| **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（Σ amount_usd）、`price_change_24h`（现价 vs 24h 前最近一根分钟桶 close）。两者只作展示，**排序用的是累计成交额 `cum_volume_usd` 与市值**，由 handler 与线二维护 | 币行两列 | 每分钟；没成交的币置 0 |
+| **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`（等 Transfer，第三批）；新绑定钱包的发行者补 `creator_user_id`（另议） | 币行口径列 | 每分钟，每个配对资产一条 UPDATE |
+| **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（窗口 `(now − 24h, now]` 按区块时间，Σ amount_usd，缺美元金额按 0）、`price_change_24h`（以配对资产计：现价 vs 基准价。基准价 = 24h 前那个时点最近一根分钟桶的 close；币龄不足或那之前没成交过 → 最早一根桶的 open；一根桶都没有或现价为空 → NULL。24h 内没成交的币基准价就是现价，涨跌 = 0）。两者只作展示，**排序用的是累计成交额 `cum_volume_usd` 与市值**，由 handler 与线二维护 | 币行两列 | 每分钟；没成交的币置 0 |
 
 协议数据页不需要定时线：`launchpad_v2_protocol_day` 由成交 handler 累加，发射数与发射者读时按 UTC 日数。
 
-**线二、线三只写真变了的行（09-19 定）。** 币表是宽表，四条列表排序索引挂在每分钟要改的列上，全表 UPDATE 等于每分钟把索引重写一遍。所以：线二先比各配对资产这一分钟的价和上一分钟，没变的资产整组跳过，变了的只 UPDATE 那组币且 `WHERE price_usd <> 新值`；线三只碰 24h 内有成交滑入或滑出的币，两个值都是 0 的行不写。每分钟真正写的行从「全部」降到「活跃的」。到十万个币这仍不够时，把热列拆成 `launchpad_v2_token_stats`，见[第 7 页](/tables)「拆表信号」。
+**线二、线三只写真变了的行（09-19 定）。** 币表是宽表，四条列表排序索引挂在每分钟要改的列上，全表 UPDATE 等于每分钟把索引重写一遍。所以：线二按配对资产分组、每组一条 UPDATE，**逐行比较，新值与库里的值不同才写**（NULL 安全比较）；线三只扫 24h 内有成交、或上一轮成交量非 0、或涨跌非 0 的币，同样只写变了的行。**不做「配对资产价没变就整组跳过」**（09-20 作废）：USDG 恒为 1、价永远不变，照做的话它配对的币 `price_usd` 永远写不进去，币自己成交改了 `price_quote` 也不会刷。每分钟真正写的行从「全部」降到「活跃的」。到十万个币这仍不够时，把热列拆成 `launchpad_v2_token_stats`，见[第 7 页](/tables)「拆表信号」。
 
 ## 读接口换表
 
