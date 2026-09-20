@@ -24,7 +24,7 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 | 不许有 | 现在放哪 |
 |---|---|
 | RPC 客户端、web3j、`eth_*` 调用、区块浏览器客户端 | Envio 的 Effect。**唯一例外**：配对资产余额接口，见表下 |
-| 合约常量 | 例外：`LaunchDefaults` 里编译死的三个全局常量（总供应 10 亿 × 1e18、精度 18、铸给曲线的初始余额）放 Java 的 `LaunchConstants`，不走消息；配对资产的精度 / 代号 / 图标由运营在 admin Redis 维护；阈值、初始储备是按币快照，随发币消息来 |
+| 合约常量 | 例外：`LaunchDefaults` 里编译死的三个全局常量（总供应 10 亿枚〔库里存整枚〕、精度 18、铸给曲线的初始余额）放 Java 的 `LaunchConstants`，不走消息；配对资产的精度 / 代号 / 图标由运营在 admin Redis 维护；阈值、初始储备是按币快照，随发币消息来 |
 | ABI、事件签名、topic 常量、日志解码 | Envio 的 handler |
 | 合约数学：曲线定价公式、`sqrtPriceX96` 换算、currency0 / currency1 判方向、费用按 BPS 拆分 | Envio 算好放进 `derived`。**例外（用户 09-20 定）：曲线阶段的币价由 Java 算**——扫链给的是成交后的两个定价储备（`payload.curve.virtualQuoteReserve` / `virtualTokenReserve`），Java 做一次除法再按两侧精度换算；公式只写在一处。储备的累加、虚拟储备的构成仍然全在 Envio，Java 不知道曲线参数 |
 | ERC20 语义：余额累加、销毁减供应、正余额地址数 | Envio 维护内部 `Balance`，消息给**变动后的绝对值**，Java 只 set |

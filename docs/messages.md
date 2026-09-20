@@ -88,7 +88,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，字段齐
 
-Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿 × 1e18）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；名单里没有这个配对资产时币照收，金额只存最小单位原值，整枚数与 USD 留空并告警，运营补配置后由线二回填。
+Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿枚；库里的数量一律存整枚，见[第 7 页](/tables)）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；**配对资产的精度是必需品**（用户 09-20 定）：消息里的数量都是最小单位，Java 入库前按精度换成整枚，没有精度就换不出任何一个数 —— 名单里没有这个配对资产时这条发币消息直接失败（审计行 FAILED），运营补进名单后自动重投就过；运营保证配对资产先配进名单。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
@@ -146,7 +146,7 @@ Java 写 `launchpad_v2_trade`（CURVE / BUY）、持仓、K 线桶、协议日�
 | `token.token` | 【解析】【必须】这条曲线对应的发射币。Java 只认它，不按 curve 反查 | 已有 |
 | `derived.trader` | 【解析】【可选】真实交易者。**没给时 Java 取 `recipient`**——用户直接调曲线、经 TradeRouter 买，收币的都是用户本人。只有 `recipient` 是合约（0x Settler 这类聚合器自己收币再转给用户）时才需要 Envio 按整笔收据穿透后给出，规则见[第 3 页](/envio)。Activity、持仓、持有者归属都按它 | 缺（可选） |
 | `curve.realQuoteReserve` | 【解析】【必须】成交后曲线里的净募集（= 合约 `trackedNetQuote`；Envio 按事件累加：买 `+= netQuoteIn`，卖 `-= grossQuoteOut`）。**毕业进度分子**（对外 `quoteRaised`）；曲线阶段的流动性 = 它 × 2 | 已有 |
-| `curve.virtualQuoteReserve` · `curve.virtualTokenReserve` | 【解析】【必须】成交后的两个定价储备，与合约 `getPricingReserves()` 一致。**扫链不给现成的价，由 Java 算（用户 09-20 定）**：`priceQuote = virtualQuoteReserve ÷ virtualTokenReserve × 10^(18 − 配对资产精度)`，30 位小数 HALF_UP；配对资产不在运营名单（精度未知）时价留空。**币价**、K 线、市值 | 已有 |
+| `curve.virtualQuoteReserve` · `curve.virtualTokenReserve` | 【解析】【必须】成交后的两个定价储备，与合约 `getPricingReserves()` 一致。**扫链不给现成的价，由 Java 算（用户 09-20 定）**：`priceQuote = virtualQuoteReserve ÷ virtualTokenReserve`，两个储备先各自按精度换成整枚再相除（等价于最小单位之比 `× 10^(18 − 配对资产精度)`，逐位相同），30 位小数 HALF_UP。**币价**、K 线、市值 | 已有 |
 | `curve.realTokenReserve` · `curve.remainingSellableTokens` | 【解析】【不读】扫链多给的，我们没有读者 | 已有 |
 
 ```json

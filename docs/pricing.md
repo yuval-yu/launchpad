@@ -23,7 +23,8 @@ interface PriceSource {
 | 稳定币 USDG | 代码里写死的代号集合（目前只有 `USDG`） | 常量 1 | 不发请求，每分钟照样落一行，`source = FIXED_1` |
 | 股票代币 NVDA / AAPL / TSLA / AMZN | 名单里 `isStock: true` | Robinhood `GET /rhj/prices/{symbol}`，bid / ask 中间价 × `/assets` 的 `currentMultiplier` | 代号就是名单的 `symbol`；`isTradingHalt` 为真这一轮不落行（沿用上一个价）。**第一批先用录制的响应做单测，真实调用后接**，接上之前股票配对的币 USD 为 null |
 | 其余：ETH / WETH / cbBTC | 既不是稳定币也不是股票 | 交易所现货，**币安主、Coinbase 备** | 交易对代号取名单里可选的 `priceSymbol`，没填就用 `symbol`：WETH 填 `ETH`，cbBTC 填 `BTC`，ETH 不用填。币安 `{priceSymbol}USDT`，Coinbase `{priceSymbol}-USD` |
-| 名单里没有的配对资产 | — | — | USD 字段一律 null，前端显示「—」，不猜 |
+| 名单里有、但没配价源的配对资产 | — | — | USD 字段一律 null，前端显示「—」，不猜 |
+| 名单里根本没有的配对资产 | — | — | 不会出现在库里：没有精度就换不出整枚数，发币消息直接 FAILED，补进名单后重投（[第 7 页](/tables)） |
 
 admin 的 `chainlinks[chain].tokens[*]` **只加一个可选字段 `priceSymbol`**，与 `isStock` 同级；不加 `priceSource`。
 

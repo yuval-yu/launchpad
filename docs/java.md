@@ -35,13 +35,13 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 
 **chainId 只做一件事。** 只接一条链，`chainId` 在消息、每张表、唯一键里都保留，但 Java 里唯一用它的地方是解析层：不等于 admin 配置的链就进死信，不落审计表。这是防「测试网的 Envio 误配到主网库」的护栏；除此之外任何代码不许按 chainId 分支。
 
-**审计表。** `token_address` 列（从 `payload.token.token` / `args.token` / `payload.address` 抽）给按币回放；`kafka_key` 列与 `kafka_partition` / `kafka_offset` 放一起，排障时能看出分区是不是按币分的；`(status, processed_at)` 索引给 retry；按月分区，`PROJECTED` 超过 90 天的行清空 `raw_message`。
+**审计表。** `token_address` 列（从 `payload.token.token` / `args.token` / `payload.address` 抽）给按币回放；`kafka_key` 列与 `kafka_partition` / `kafka_offset` 放一起，排障时能看出分区是不是按币分的；`(status, processed_at)` 索引给 retry；本期不分区、不清理（用户 09-20 定），原文全留着；键与索引见[第 7 页](/tables)。
 
 **Kafka key 只核对、不定业务。** 监听器用 `@Header(KafkaHeaders.RECEIVED_KEY)`（批量模式 `record.key()`）拿到 key，解析层比对「key == 这条消息反查出的 token」，不等打 WARN。认币始终按消息体（曲线 `payload.address` 查 `curve_address`、Swap `args.id` 查 `pool_id`、Transfer `payload.address`），Envio 将来改键 Java 不用动。
 
 ## handler：九种事件
 
-写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。唯一的合约知识是 `LaunchConstants` 里三个编译死的常量：`TOTAL_SUPPLY = 1e9 × 1e18`、`TOKEN_DECIMALS = 18`、铸给曲线的初始余额 = `TOTAL_SUPPLY`（用户 09-18 定：全局常量不走消息）。
+写法约定：**事实表 insertIfAbsent 返回 true 才推进派生表**；set 型列无条件写。**数量一律整枚**（用户 09-20 定）：消息里的 uint256 在 handler 取字段的那一层按精度换成整枚数（`WholeAmounts.fromRaw`，发射币 18 位、配对资产取币行的精度，只移小数点不舍入），这一层之后——writer、持仓、K 线、协议日、三条定时线——不再出现任何「除以 10 的几次方」；对外那几个最小单位字段由读接口用 `WholeAmounts.toRaw` 还原，全库只有这一正一反两处换算。配对资产的精度因此是必需品：运营名单里没有的配对资产，`TokenLaunched` 直接 FAILED，补进名单后自动重投。handler 里只有对消息字段的落库和对自家表的算术，**没有合约数学、没有 ERC20 语义**（见[第 2 页](/facts)）。唯一的合约知识是 `LaunchConstants` 里三个编译死的常量：`TOTAL_SUPPLY = 1e9`（整枚）、`TOKEN_DECIMALS = 18`、铸给曲线的初始余额 = `TOTAL_SUPPLY`（用户 09-18 定：全局常量不走消息）。
 
 ```java
 // 同一个事务里
