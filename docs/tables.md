@@ -127,14 +127,17 @@ launchpad_v2_kline_minute                         # 只有有成交的分钟才�
   open / high / low / close DECIMAL(50,30)     # 配对资产计，取成交后价 price_quote
   open_block / open_log  BIGINT / INT          # open 来自哪笔成交；迟到的更早一笔替换 open（乱序保护）
   close_block / close_log BIGINT / INT         # close 来自哪笔成交；更晚的才替换 close
-  open_usd / high_usd / low_usd / close_usd DECIMAL(50,30)   # 一枚币的美元价，量级可到 1e-11，8 位小数存不下
-  volume_quote_curve     DECIMAL(65,0)         # 曲线成交量
+  open_usd / high_usd / low_usd / close_usd DECIMAL(50,30)   # 一枚币的美元价，量级可到 1e-11，8 位小数存不下。用每笔成交自己固化的美元价，不用现价。
+                                               #   开 / 收严格跟着开 / 收那一笔：那一笔没有美元价就是空，不借别的成交的价（借了结果就取决于到达顺序）；
+                                               #   高 / 低取桶内「有美元价的那些成交」的极值。所以同一根里可能 open_usd 为空而 high_usd 有值，读侧要能吃 null
+  volume_quote_curve     DECIMAL(65,0)         # 曲线成交量 = 桶内各笔成交额之和（买 grossQuoteIn / 卖 netQuoteOut，与协议日、币行累计同一个数）
   volume_quote_pool      DECIMAL(65,0)         # 池内成交量；分开存，「含不含 DEX」读时定
-  volume_usd_curve       DECIMAL(20,8)
+  volume_usd_curve       DECIMAL(20,8)         # 缺美元价的成交按 0 计（列 NOT NULL）
   volume_usd_pool        DECIMAL(20,8)
-  trade_count            INT
+  trade_count            INT                   # 量与笔数只在成交行首插成功时加
   updated_at             BIGINT
                                                # UK  (token_address, period_start)
+                                               # price_quote 为空的成交（配对资产不在运营名单、精度未知）不写桶
 
 launchpad_v2_kline_hour                           # 字段同分钟桶，period_start 取整小时；同样只有有成交的小时才有行；ALL 档读它按跨度合并。不建日桶：日 = 24 个小时桶读时合并
 
