@@ -48,7 +48,7 @@ title: 5 · Java 改造点：消费、投影、派生、读接口
 Position pos = positions.lock(chainId, trader, token);        // SELECT … FOR UPDATE，没有就是空持仓
 Trade trade = Trade.from(msg, priceAt(...), pos);             // 卖出行的 pnl_* 在这里用「卖出前的持仓」算好，不回填
 boolean inserted = trades.insertIfAbsent(trade);              // 唯一键 (tx_hash, log_index, block_time)；重复 → false
-tokens.setReserveAndPrice(token, quoteReserve, priceQuote);                  // set 型，幂等；曲线阶段 liquidity_quote = quoteReserve × 2
+tokens.applyState(token, TokenStateUpdate.trade(block, log)…);              // set 型 + 成交水位线：价（Java 用两个定价储备算）、净募集、liquidity_quote = 净募集 × 2
 tokens.advanceLastTradeAt(token, blockTime);
 if (inserted) {                                               // 累加型只走一次
     positions.apply(pos, trade);                              // 买入加成本，卖出扣成本、累加已实现盈亏
@@ -81,7 +81,7 @@ if (inserted) {                                               // 累加型只走
 
 Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在更晚的事件之后才来。去重靠审计表 `event_id` 唯一键，重复的拒掉、漏的补上；但派生表要能吃下乱序，四条规则：
 
-1. **set 型状态带水位线。** 币行分两组：成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，Transfer 类列（`total_supply` / `holder_count`）用 `supply_state_*`，各自只在事件的 `(block_number, log_index)` **大于**本组水位线时才写并推进；余额表的 `balance` 一个水位线。分两组是因为两组由不同事件写，共用一个会让一条迟到的 Transfer 被更新的成交挡掉，`holder_count` 停在旧值。更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推。**`status` 与毕业时间不走水位线**：它们单向，用「还在曲线阶段才写」的条件——毕业后的 Swap 会把成交水位线推到比 CurveCompleted 更新，共用条件会让迟到的 CurveCompleted 永远写不进去、币停在曲线分区；Rescued 同理。CurveCompleted 带的关闭时储备两列（纯存档）归成交组水位线，被挡下也无妨。
+1. **set 型状态带水位线。** 币行分两组：成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，Transfer 类列（`total_supply` / `holder_count`）用 `supply_state_*`，各自只在事件的 `(block_number, log_index)` **大于**本组水位线时才写并推进；余额表的 `balance` 一个水位线。分两组是因为两组由不同事件写，共用一个会让一条迟到的 Transfer 被更新的成交挡掉，`holder_count` 停在旧值。更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推。**`status` 与毕业时间不走水位线**：它们单向，用「还在曲线阶段才写」的条件——毕业后的 Swap 会把成交水位线推到比 CurveCompleted 更新，共用条件会让迟到的 CurveCompleted 永远写不进去、币停在曲线分区；Rescued 同理。CurveCompleted 带的两笔金额（`swept_quote` / `swept_token`）同样**不走水位线**，用「还没写过才写」：这条事件的链上位置比该币所有曲线成交都靠后，它要是推进成交水位线，漏发后补到的最后几笔成交就再也写不进币行的价 / 净募集 / 流动性（09-20 修，之前归在成交组里，乱序补发时币行会停在倒数第几笔的价上）。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
 3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_v2_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_v2_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
 4. **「币还没到」不设重试上限。** 所有依赖币行的事件（成交、Transfer、CurveCompleted、毕业三事件）先于 TokenLaunched 到达时，按老做法会进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功**并提交之后**立即按币、按链上顺序重投它们。handler 的约定：先查币行，查不到立刻抛 `TokenNotReadyException`（事务回滚），不要写到一半才抛。等待行如果永远等不到币，就一直停在 `WAITING_TOKEN`，从各状态行数的指标上看得见。
