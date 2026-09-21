@@ -90,7 +90,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 <text x="670" y="328" style="fill:var(--vp-c-text-2);font-size:11px">现价类 USD、绑定、滚动 24h</text>
 <rect x="660" y="354" width="210" height="44" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
 <text x="670" y="371" fill="currentColor" style="font-weight:600">读接口 REST</text>
-<text x="670" y="386" style="fill:var(--vp-c-text-2);font-size:11px">全部查 MySQL，Redis 短缓存</text>
+<text x="670" y="386" style="fill:var(--vp-c-text-2);font-size:11px">全部查 MySQL，前面先不加缓存</text>
 <rect x="660" y="410" width="210" height="40" rx="3" style="fill:var(--vp-c-bg);stroke:var(--vp-c-border)"/>
 <text x="670" y="427" fill="currentColor" style="font-weight:600">重投 · 回放 · 死信</text>
 <text x="670" y="442" style="fill:var(--vp-c-text-2);font-size:11px">按 id / 按币 / 按事件 / 全量重建</text>

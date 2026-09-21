@@ -130,7 +130,7 @@ launchpad_v2_kline_hour                           # 字段同分钟桶，period_
 
 launchpad_v2_protocol_day                         # UTC 日 × 配对资产一行；协议数据页
   chain_id               BIGINT
-  day_index              INT                   # floor(区块时间 / 86400)
+  day_index              INT                   # 第几个 UTC 日 = floor(区块时间毫秒 / 86400000)，与各表的 block_time 同单位
   quote_asset_address    CHAR(42)              # 配对资产地址
   volume_quote_curve / volume_quote_pool DECIMAL(36,18)
   volume_usd_curve / volume_usd_pool     DECIMAL(20,8)
