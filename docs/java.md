@@ -110,7 +110,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 |---|---|---|
 | `/market/tokens/*` `/search` | `launchpad_v2_token` | 不变 |
 | `/coin/detail` | 币行 + CMC 同步刷 | 币行，不再刷；`priceInPair = price_quote` |
-| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_v2_trade` 逐笔；H1 / H6 / D1 读 `launchpad_v2_kline_minute`；ALL 读 `launchpad_v2_kline_hour` 按跨度合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。LTTB 与档位映射保留 |
+| `/coin/kline` | CMC points / transactions | M5 读 `launchpad_v2_trade` 的成交行、5 秒一格现算；H1 / H6 / D1 读 `launchpad_v2_kline_minute`；ALL 跨度 ≤ 1 天读分钟桶，更长读 `launchpad_v2_kline_hour` 合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。「≤ 60 笔逐笔画、超过才聚合」对五档都成立；LTTB 与档位映射保留，完整映射见[第 8 页](/frontend) |
 | `/coin/trades` | CMC lastId 游标 | `launchpad_v2_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
 | `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_v2_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
 | `/assets/activity` | 旧 `launchpad_activity` | `launchpad_v2_trade` 按 trader；trader 为 null 的不出 |
