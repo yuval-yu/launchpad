@@ -30,6 +30,7 @@ export default defineConfig({
       ] },
       { text: '执行', items: [
         { text: '10 · 落地与风险', link: '/rollout' },
+        { text: '12 · 野池', link: '/wild-pools' },
       ] },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/yuval-yu/launchpad' }],
