@@ -112,7 +112,7 @@ type QuoteAssetConfig @entity {     # configHash 一行；TokenLaunched 按 quot
 - **Swap**：按 `poolId` 查 `Token`，查不到 return；`derived` = side、**trader（见下一节，必须）**、tokenAmount、quoteAmount、priceQuote、liquidityQuote；发消息
 - **流动性 `derived.liquidityQuote`**（只有 V4PoolGraduated / Swap 给，以配对资产计；曲线阶段 Java 自己用 `quoteReserve × 2`）：池两侧按池价折成配对资产之和，全区间仓位下两侧各 `L × (√P − √P_lower)` 与 `L × (√P_upper − √P) ÷ (√P × √P_upper)`，按 currency0 / 1 方向与精度整理。Java 只乘配对资产价，不存池子信息；W1 用真实池对 `balanceOf(PoolManager)` 核一次
 - **Transfer**：`from` 为零地址（铸币）只更新 `Balance`，**不发消息**（Java 收到 TokenLaunched 时按常量 TOTAL_SUPPLY 写曲线余额）；其余更新 `Balance(token, from)` 与 `Balance(token, to)`，`to` 为零地址减 `Token.totalSupply`，余额跨 0 时 `positiveBalanceCount` ±1；`derived` = fromBalance、toBalance、fromKind、toKind、totalSupply、positiveBalanceCount（余额都是**变动后的绝对值**；kind 按 config 里的固定地址 + 该币的 curve 判）；发消息。Java 拿到就 set，不累加
-- **Heartbeat**：`onBlock` 每 N 块（约一分钟）发一条 headBlock / processedBlock / processedBlockTime；Java 用来判断 Envio 是否活着
+- ~~**Heartbeat**：`onBlock` 每 N 块发一条进度~~ —— 09-21 去掉，不需要做（理由见[第 4 页](/messages)）
 - **费用 / 回购 / 治理类**：空 handler，只进 `raw_events`
 
 ## 交易者归属：在 Envio 里做，用整笔收据算

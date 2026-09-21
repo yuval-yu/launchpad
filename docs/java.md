@@ -69,7 +69,7 @@ if (inserted) {                                               // 累加型只走
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
 | Transfer | `launchpad_v2_transfer`（09-21 新增的转账事实表，唯一键 `(tx_hash, log_index)`） | **仅当事实行首插成功**：`launchpad_v2_balance` 转出方 / 转入方两行原子加减（建行时写 kind）；用户地址余额跨过 0 → 币行 `holder_count ± 1`（只数用户）；零地址一侧 → 币行 `total_supply` 加 / 减。余额只有这一个来源，成交类 handler 不碰余额 | — |
-| Heartbeat | 不落审计 | `launchpad_v2_indexer_state` 一行 upsert（head_block / processed_block / processed_block_time / heartbeat_at）；lag 告警、余额页 `syncedAt`、Envio 是否活着都读它 | — |
+| ~~Heartbeat~~（09-21 去掉） | — | 不再有这种消息。`launchpad_v2_indexer_state` 改由**消费水位**写：每条进了审计表的消息记一次位置（只比大小），每批处理完单调 upsert 一次（`ConsumptionWatermark`）；余额页与持仓页的 `syncedAt` 读它。没有落后告警——「扫链停了」由扫链那边自己监控 | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
 

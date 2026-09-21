@@ -77,7 +77,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `txHash` | 【必须】交易哈希，小写。成交表唯一键；前端跳区块浏览器 | 已有 |
 | `txFrom` | 【必须】交易发起人，小写（Envio 要开 `transaction_fields: [from]`）。备查列，排查中继 / 路由问题时用 | **缺** |
 | `removed` | 【必须】恒 `false`。语义保留，Java 收到 `true` 只留审计不投影 | 已有（语义待定，见上表「确认」） |
-| `payload.address` | 【必须，Heartbeat 除外】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 | 已有 |
+| `payload.address` | 【必须】发出日志的合约地址，小写。Transfer 时它就是 token；其余作审计 | 已有 |
 | `payload.signature` | 【可选】规范签名。审计用；没有同名重载，不靠它路由 | 缺（可选，不催） |
 | `payload.args` | 【必须】ABI 具名参数原样，对象。链上事实 | 已有 |
 | `payload.token` | 【按事件】从 Envio 的 Token 实体拷出的、与这个币有关的字段，对象。至少有 `token.token`（发射币地址）。币级字段（配对资产精度、阈值、初始储备）也可以放这里 | 已有（曲线事件；TokenLaunched 没带，它的 `args.token` 本来就是） |
@@ -301,17 +301,10 @@ Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行
 
 一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头。铸币那条不发（见「topic 与投递」），曲线的初始余额由发币 handler 按常量写。
 
-### Heartbeat（不是合约事件，Envio 每分钟发一条）· 扫链未提供
+### ~~Heartbeat~~ · 09-21 去掉
 
-`eventName = "Heartbeat"`，`payload.args` 为空，`payload.derived` 如下；`eventId = v1:{chainId}:heartbeat:{processedBlock}`。不落审计表，Java 只 upsert `launchpad_v2_indexer_state` 那一行（`heartbeat_at` 取接收时间）。
-
-| 字段 | 含义与说明 | 扫链现状 |
-|---|---|---|
-| `derived.headBlock` | 【解析】【必须】Envio 看到的链头区块号。与下一项的差 = Envio 落后多少，超阈值告警 | **缺** |
-| `derived.processedBlock` | 【解析】【必须】Envio 已处理完的区块号。lag 告警的基准；资产页余额的 `syncedAt` 取它对应的区块时间；落 `launchpad_v2_indexer_state` | **缺** |
-| `derived.processedBlockTime` | 【解析】【必须】已处理区块的时间，秒。同上 | **缺** |
-
-没有它 Java 分不清「市场安静」和「Envio 停了」。
+原设计让 Envio 每分钟发一条进度消息（链头、已处理区块），Java 据此写 `launchpad_v2_indexer_state`、做落后告警。**用户 09-21 定去掉 Heartbeat：它不影响任何数据的正确性；`syncedAt` 取它反而不准（它与事件消息不在同一个分区，而余额表是 Java 累加的）；「扫链停了」由扫链那边自己监控。**
+那张表改由 Java 的**消费水位**写：每批消息处理完，把这批里最大的（区块号，区块时间）单调地落一次，资产页余额与持仓的 `syncedAt` 取它。扫链不用为此做任何事。
 
 ## 不发的事件
 

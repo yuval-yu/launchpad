@@ -259,14 +259,12 @@ launchpad_v2_coin_price                           # 配对资产美元价历史�
   created_at             BIGINT
                                                # UK  (asset_address, priced_at)                   同一资产同一分钟只有一行，INSERT IGNORE 天然幂等；priceAt / 最新价也走它
 
-launchpad_v2_indexer_state                        # Envio 处理到哪，一条链一行；Heartbeat 消息 upsert（09-19 补：只落内存重启就丢，运维看不到）
-  chain_id               BIGINT                # 唯一键
-  head_block             BIGINT                # Envio 看到的链头区块号
-  processed_block        BIGINT                # Envio 已处理完的区块号；与上一项的差 = Envio 落后多少
-  processed_block_time   BIGINT                # 已处理区块的时间，毫秒；资产页余额的 syncedAt 取它
-  heartbeat_at           BIGINT                # 最近一条 Heartbeat 的接收时间；距今超阈值 = Envio 停了
+launchpad_v2_indexer_state                        # 消费水位：本服务消费到的最大区块，一条链一行。消费管线每批消息处理完单调推进一次（09-21 改：原设计由扫链的 Heartbeat 写，Heartbeat 已去掉）
+  chain_id               BIGINT
+  processed_block        BIGINT                # 消费到的最大区块号（扫链至少处理到了这里）；只增不减
+  processed_block_time   BIGINT                # 那个区块的时间，毫秒；资产页余额与持仓的 syncedAt 取它。市场安静时停在最后一条消息的区块上；多分区时是各分区的最大值
   updated_at             BIGINT
-                                               # UK  (chain_id)                                   一行
+                                               # UK  (chain_id)
 
 launchpad_v2_token_content                        # 币 ↔ 叙事绑定，TokenLaunched handler 写；一币至多一条
   chain_id               BIGINT

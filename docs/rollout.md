@@ -27,7 +27,7 @@ title: 10 · 五个阶段、待拍板、风险
 |---|---|
 | P1 消费管线全部：批量监听、分区并行、死信、审计表、四种回放 | 价格类的列：`price_quote`、`price_usd`、`market_cap_usd`、`liquidity_*`、成交行的 `price_quote`。**留 NULL**，`derived` 到位后补逻辑，按币回放一遍填上 |
 | 十二张 `launchpad_v2_*` 表的 DDL | K 线两张桶表：先不写（桶的开收价就是 `priceQuote`） |
-| TokenLaunched、CurveCompleted handler | Swap / Transfer / 毕业三事件 / Heartbeat 的 handler |
+| TokenLaunched、CurveCompleted handler | Swap / Transfer / 毕业三事件的 handler（Heartbeat 09-21 去掉） |
 | CurveBuy / CurveSell 的成交事实行：数量、金额、`avg_price_quote`、`amount_usd`（`priceAt`）；trader 取 `recipient` / `seller` | `/assets/positions`、`/assets/history` 两个新接口 |
 | 持仓表与成本计算（随成交 handler 一起做，含迟到成交重算） | 读接口换表（P3） |
 | 线一定价：稳定币锚 1、币安 → Coinbase 主备；Robinhood 源用录制响应做单测 | Robinhood 真实调用 |

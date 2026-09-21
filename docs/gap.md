@@ -9,7 +9,7 @@ title: 11 · 与扫链现状的差距
 字段含义见[第 4 页](/messages)。
 
 **一句话：上一版要的东西基本都到位了，曲线、毕业、池内成交、转账都能联调。还剩一个上主网前必须修的风险（野池能把索引器卡死）、
-一处我们这边的变更（余额改由 Java 算，Transfer 可以瘦身）、两件没做的（Heartbeat、确认深度）。**
+两处我们这边的变更（余额改由 Java 算，Transfer 可以瘦身；**Heartbeat 不要了**）、一件没定的（确认深度）。**
 
 ## 已经到位的
 
@@ -65,21 +65,15 @@ if (event.params.hooks.toLowerCase() !== GRADUATED_POOL_HOOK) return;   // 放�
 
 我们用这次实抓做了对账：Java 累加出来的每个地址的余额、每个币的总供应与正余额地址数，和你消息里算的 181 条逐个相等。
 
-## 还没做的
+## 还没定的、以及不用做的
 
-### Heartbeat（不是合约事件）
+### ~~Heartbeat~~ —— 不需要了（09-21）
 
-每分钟左右发一条，让我们分得清「市场安静」和「扫链停了」，资产页余额的「同步时间」也取它：
+上一版请你每分钟发一条进度消息。**现在不用做**：它不影响我们任何数据的正确性；我们原本拿它当资产页余额的「同步时间」，
+但余额表已经改由 Java 自己累加，同步时间取我们自己的消费水位更准（Heartbeat 和事件消息不在同一个分区，你说「处理到 X」的时候我们可能还没消费完 X−1 的 Transfer）。
 
-```json
-{ "eventId": "v1:46630:heartbeat:121970000", "eventName": "Heartbeat", "chainId": 46630,
-  "blockNumber": 121970000, "blockTimestamp": 1789900000,
-  "payload": { "derived": { "headBlock": "121970012", "processedBlock": "121970000", "processedBlockTime": "1789900000" } } }
-```
-
-`processedBlock` = 已经处理完的区块；`headBlock` = 你看到的链头；信封的 `blockNumber` / `blockTimestamp` 请填**已处理区块**的，不要填发送时间。
-`blockHash` / `txHash` / `logIndex` / `removed` / `payload.args` 这几个信封字段 Heartbeat 没有，**不用硬凑**，我们这边单独解析它。
-key 用任意固定值。取法（block handler、定时器、另查 RPC）归你定。
+**相应地，「扫链停了」这件事我们这边发现不了**——没有消息时，我们分不清是市场安静还是 Envio 挂了。请你那边自己监控进程与同步进度（落后链头多少块）。
+Envio 停了不会让我们丢数据（重启后从检查点补发，我们按 `(txHash, logIndex)` / `eventId` 去重），只是停着的那段时间所有页面的数据都是旧的。
 
 ### 确认深度与链重组
 
@@ -97,7 +91,6 @@ key 用任意固定值。取法（block handler、定时器、另查 RPC）归�
 | `swap.md` 的 `trader` | 写的是「无法唯一识别时为 `null`」，代码是取净流量最大的地址、没有候选才 `null`。以代码为准即可，请改一下文档 |
 | `swap.md` / `initialize.md` / `modify-liquidity.md` 的示例 | 示例里 `tick` / `fee` / `tickSpacing` 是 JSON number，实抓里是字符串（`"tick": "379030"`）。我们不读这几个字段，只是文档与实际不一致 |
 | `launch-graduated.md` | 只有 `derived` 片段，没有带 `args` 的完整 payload。实抓里有一条，可以直接贴上去 |
-| `base.md` | 事件列表里还没有 Heartbeat |
 
 ## 已经对齐的
 
@@ -118,6 +111,5 @@ key 用任意固定值。取法（block handler、定时器、另查 RPC）归�
 ## 顺序
 
 1. **野池卡死**（Initialize 按 Hook 过滤）—— 上主网前必须
-2. Heartbeat
-3. 确认深度
-4. Transfer 瘦身、文档小问题 —— 不急，什么时候改都行（瘦身属于消息形状变化，改的时候清一次 topic）
+2. 确认深度；你那边对 Envio 进程与同步进度的监控
+3. Transfer 瘦身、文档小问题 —— 不急，什么时候改都行（瘦身属于消息形状变化，改的时候清一次 topic）
