@@ -4,6 +4,11 @@ title: 9 · 15 个合约、哪些事件订阅、各发什么消息
 
 # 15 个合约、哪些事件订阅、各发什么消息
 
+::: warning 09-21 变更（本页是最初给扫链的方案，下面两点以[第 4 页](/messages)与[第 11 页](/gap)为准）
+- **建池事件认 `LaunchFactory.LaunchGraduated`**，不是 `V4GraduationReceiver.V4PoolGraduated`：扫链订阅的是同一笔交易里的前者并补了 `derived`。
+- **余额由 Java 累加**：Transfer 消息不再需要变动后余额、总供应、正余额地址数，只要 `args` 与 `fromKind` / `toKind`；扫链那边的 `Balance` 实体留不留随意。
+:::
+
 合约源码在 workspace 根 `src/`，共 15 个合约。这一页写清**每个事件订不订阅、订阅后发不发消息**。消息字段见[第 4 页](/messages)。
 
 ## 合约总览：15 个合约各管什么

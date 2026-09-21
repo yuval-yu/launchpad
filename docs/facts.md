@@ -4,6 +4,11 @@ title: 2 · 什么在 Envio 做，什么在 Java 做
 
 # 什么在 Envio 做，什么在 Java 做
 
+::: warning 09-21 变更（本页是最初给扫链的方案，下面两点以[第 4 页](/messages)与[第 11 页](/gap)为准）
+- **建池事件认 `LaunchFactory.LaunchGraduated`**，不是 `V4GraduationReceiver.V4PoolGraduated`：扫链订阅的是同一笔交易里的前者并补了 `derived`。
+- **余额由 Java 累加**：Transfer 消息不再需要变动后余额、总供应、正余额地址数，只要 `args` 与 `fromKind` / `toKind`；扫链那边的 `Balance` 实体留不留随意。
+:::
+
 Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看一条消息定不了、而 Envio 看整笔交易或它自己的内部状态一眼就能定的，由 Envio 补进消息；其余全在 Java。** 代价不对称：进了 Envio 的规则要改就得重跑扫链并重投消息；留在 Java 的规则改了只重算 MySQL。
 
 ## 判据表
@@ -27,7 +32,7 @@ Envio 的输出是消息，不是表，所以判据只有一条：**Java 单看�
 | 合约常量 | 例外：`LaunchDefaults` 里编译死的三个全局常量（总供应 10 亿枚〔库里存整枚〕、精度 18、铸给曲线的初始余额）放 Java 的 `LaunchConstants`，不走消息；配对资产的精度 / 代号 / 图标由运营在 admin Redis 维护；阈值、初始储备是按币快照，随发币消息来 |
 | ABI、事件签名、topic 常量、日志解码 | Envio 的 handler |
 | 合约数学：曲线定价公式、`sqrtPriceX96` 换算、currency0 / currency1 判方向、费用按 BPS 拆分 | Envio 算好放进 `derived`。**例外（用户 09-20 定）：曲线阶段的币价由 Java 算**——扫链给的是成交后的两个定价储备（`payload.curve.virtualQuoteReserve` / `virtualTokenReserve`），Java 做一次除法再按两侧精度换算；公式只写在一处。储备的累加、虚拟储备的构成仍然全在 Envio，Java 不知道曲线参数 |
-| ERC20 语义：余额累加、销毁减供应、正余额地址数 | Envio 维护内部 `Balance`，消息给**变动后的绝对值**，Java 只 set |
+| ERC20 语义：余额累加、销毁减供应、持有人数 | ~~Envio 维护内部 `Balance`，消息给变动后的绝对值，Java 只 set~~ **09-21 改：Java 从转账事实行累加**（首插才原子加减），Envio 只给 `from` / `to` / `value` 与地址类别。这是「链上语义归扫链」唯一让出来的一块，原因是扫链那边算太慢；Java 仍然不查链 |
 | 交易者穿透、同 tx 事件配对 | Envio |
 | 0x 下单透传 | 暂时保留在 launchpad，原样不动；它只转发前端请求，不读链、不解析合约 |
 

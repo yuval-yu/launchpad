@@ -4,6 +4,11 @@ title: 3 · Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
 # Envio 只做扫链：订阅、解码、补字段、发 Kafka
 
+::: warning 09-21 变更（本页是最初给扫链的方案，下面两点以[第 4 页](/messages)与[第 11 页](/gap)为准）
+- **建池事件认 `LaunchFactory.LaunchGraduated`**，不是 `V4GraduationReceiver.V4PoolGraduated`：扫链订阅的是同一笔交易里的前者并补了 `derived`。
+- **余额由 Java 累加**：Transfer 消息不再需要变动后余额、总供应、正余额地址数，只要 `args` 与 `fromKind` / `toKind`；扫链那边的 `Balance` 实体留不留随意。
+:::
+
 一句话：**我们写一份 `config.yaml`、一份最小的 `schema.graphql` 和一组 TypeScript handler，indexer 从 QuickNode RPC 拉区块、跑 handler、把每条事件变成一条 Kafka 消息。** Postgres 只存 Envio 自己的同步状态和一份最小内部状态，没有 Hasura，Java 不读它。
 
 同事已起的仓库 `amazing-socrates/envio`（测试网、纯 RPC、三个 handler、`publishKafka` effect 占位）就是这个形状的起点，往下填即可。

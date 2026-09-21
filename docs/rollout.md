@@ -4,13 +4,18 @@ title: 10 · 五个阶段、待拍板、风险
 
 # 五个阶段、待拍板、风险
 
+::: warning 09-21 变更（本页是最初给扫链的方案，下面两点以[第 4 页](/messages)与[第 11 页](/gap)为准）
+- **建池事件认 `LaunchFactory.LaunchGraduated`**，不是 `V4GraduationReceiver.V4PoolGraduated`：扫链订阅的是同一笔交易里的前者并补了 `derived`。
+- **余额由 Java 累加**：Transfer 消息不再需要变动后余额、总供应、正余额地址数，只要 `args` 与 `fromKind` / `toKind`；扫链那边的 `Balance` 实体留不留随意。
+:::
+
 ## 落地顺序
 
 契约先行，删除最后；每个阶段能单独编译、部署、验收。P1 与 P2 可并行。
 
 1. **P0 契约定稿。** 把[第 4 页](/messages)发给写 Envio 的同事，对齐信封、九种事件的 `derived`、分区键、确认深度。在测试网跑出样例：TokenLaunched / CurveBuy / CurveSell / CurveCompleted / V4PoolGraduated / Swap / Transfer 各一条，存进 `src/test/resources/storyfun/*.json`。**出口**：样例进仓库，双方签认。
 2. **P1 消费管线改造（与业务无关）。** 死信 topic 与回灌接口；批量消费 + 分区并行；审计表加 `token_address` / `tx_from`、改索引（不分区，用户 09-20 定）；按币 / 按事件 / 全量重建三种回放；micrometer 指标与 lag 告警。**出口**：用 P0 的样例消息在 dev 跑通；1 万条 Transfer 的消费耗时有数。
-3. **P2 handler 与十一张表。** 新 topic、九个 handler；按[第 7 页](/tables)从零建十一张 `launchpad_v2_*` 表（旧表不动）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
+3. **P2 handler 与十一张表。** 新 topic、九个 handler；按[第 7 页](/tables)从零建十二张 `launchpad_v2_*` 表（旧表不动）；`PriceSource` 接口 + 路由 + `priceAt`；线二、线三。测试网灌数据，与链上 `balanceOf` / curve 储备对账。**出口**：一个币从发射到毕业后 Swap，所有表与链上一致。
 4. **P3 读侧切换。** K 线 / 成交 / 持有者 / 资产页 / 协议数据改读自家表；两个新接口；币行行情列改由 handler + 线二 / 线三维护；对比新旧响应。**出口**：test 环境前端全页面走通，响应与 DTO 契约一致。
 5. **P4 删除与收尾。** [第 5 页](/java)删除清单（只删代码，旧表不动）；dev / test 库跑 V1 建 v2 表；前端下线 `POST /activities`；`CLAUDE.md` 五节重写。**出口**：仓库里没有 CMC / Blockscout 字样，RPC 只剩查配对资产余额那一处。
 
@@ -21,7 +26,7 @@ title: 10 · 五个阶段、待拍板、风险
 | 做 | 不做（等 `derived` 或后面的批次） |
 |---|---|
 | P1 消费管线全部：批量监听、分区并行、死信、审计表、四种回放 | 价格类的列：`price_quote`、`price_usd`、`market_cap_usd`、`liquidity_*`、成交行的 `price_quote`。**留 NULL**，`derived` 到位后补逻辑，按币回放一遍填上 |
-| 十一张 `launchpad_v2_*` 表的 DDL | K 线两张桶表：先不写（桶的开收价就是 `priceQuote`） |
+| 十二张 `launchpad_v2_*` 表的 DDL | K 线两张桶表：先不写（桶的开收价就是 `priceQuote`） |
 | TokenLaunched、CurveCompleted handler | Swap / Transfer / 毕业三事件 / Heartbeat 的 handler |
 | CurveBuy / CurveSell 的成交事实行：数量、金额、`avg_price_quote`、`amount_usd`（`priceAt`）；trader 取 `recipient` / `seller` | `/assets/positions`、`/assets/history` 两个新接口 |
 | 持仓表与成本计算（随成交 handler 一起做，含迟到成交重算） | 读接口换表（P3） |

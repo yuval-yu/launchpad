@@ -12,7 +12,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 - **【必须】** 缺了 Java 进 FAILED；**【可选】** 只存档，缺了不影响
 - 后面一句是我们拿它做什么
 
-扫链现状列对照的是扫链同学的消息定义（`envio/docs/*.md`，最新提交 `cbcf16e`）：**已有** = 他们的文档里有这个字段；**缺** = 没有，需要补。整个事件都没有的，在标题里标「扫链未提供」。
+扫链现状列对照的是扫链同学的消息定义（`envio/docs/*.md`，最新提交 `f8ba507`，09-21；另对照了 dev Kafka 09-21 整个 topic 的实抓 371 条）：**已有** = 他们的文档里有这个字段；**缺** = 没有，需要补。整个事件都没有的，在标题里标「扫链未提供」。
 
 ## 一眼看清：哪些字段必须由 Envio 解析
 
@@ -21,10 +21,10 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | `trader` | Swap（必须）· CurveBuy · CurveSell（可选） | 池内 Swap 的 `sender` 是路由，事件里没有用户地址，只有看整笔交易里本币 Transfer 的净流量才能定；曲线事件缺省取 `recipient` / `seller`，只有名义地址是合约（0x Settler 这类）时才需要 Envio 穿透 |
 | `curve.realQuoteReserve` `curve.virtualQuoteReserve` `curve.virtualTokenReserve` | CurveBuy · CurveSell | 事件里只有这笔的金额，成交后的状态不在事件里；储备是 Envio 按事件累加的绝对值，比 Java 自己累加健壮（漏一条消息不会永远错下去）。**边际价扫链不给，Java 用两个定价储备相除（用户 09-20 定）**——只是对消息里两个现成的数做一次除法，不碰 ABI、不查链 |
 | `curve.graduationQuoteThreshold` `curve.initialVirtualQuoteReserve` | TokenLaunched | 扫链在发币那个区块 `eth_call` 读曲线合约得到（原设想是按 `quoteConfigHash` 查注册表，取法归扫链定）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标由运营在 admin Redis 里维护，不走消息 |
-| `priceQuote` | V4PoolGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
+| `priceQuote` | LaunchGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
-| `liquidityQuote` | V4PoolGraduated · Swap | 毕业后池的流动性，以配对资产计 = 池两侧按池价折成配对资产之和；v4 不存余额，要从 L 与 √P 推，是 Uniswap 数学。曲线阶段不需要：Java 用 `quoteReserve × 2` |
-| `fromBalance` `toBalance` `totalSupply` `positiveBalanceCount` | Transfer | ERC20 余额语义；Java 只 set 绝对值、不累加 |
+| `liquidityQuote` | LaunchGraduated · Swap | 毕业后池的流动性，以配对资产计 = 池两侧按池价折成配对资产之和；v4 不存余额，要从 L 与 √P 推，是 Uniswap 数学。曲线阶段不需要：Java 用 `quoteReserve × 2` |
+| ~~`fromBalance` `toBalance` `totalSupply` `positiveBalanceCount`~~ | Transfer | **09-21 起不需要**：余额、总供应、持有人数由 Java 从转账事实行累加（见下文 Transfer 一节） |
 | `fromKind` `toKind` | Transfer | 哪些地址是曲线 / PoolManager / 工厂 / Receiver / Locker / 路由，只有 Envio 的 config 里有这份地址表；Java 靠它给持有者榜标「Bonding Curve」、剔除协议合约 |
 
 ## topic 与投递
@@ -34,7 +34,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 | topic | `launchpad.chain.events`，只有这一条 | 已有 |
 | key | **所有事件同一种键**，取 token 地址（小写）。同一个币的发币、成交、Transfer、Swap 必须落在同一个分区 | 已有（`cbcf16e` 起全部按 token） |
 | 顺序 | 同一 key 内严格按 `(blockNumber, logIndex)`；跨 key 不保证 | 已有 |
-| 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；Java 收到 TokenLaunched 时按合约常量 `TOTAL_SUPPLY` 写曲线的余额行。这样同一个币的第一条消息一定是 TokenLaunched | 缺（Transfer 整个事件还没有） |
+| 铸币 | 发币 tx 里 `Transfer(0x0 → curve)` 的 logIndex 早于 `TokenLaunched`，**不发这条 Transfer**；Java 收到 TokenLaunched 时按合约常量 `TOTAL_SUPPLY` 写曲线的余额行。这样同一个币的第一条消息一定是 TokenLaunched | 已有：铸币那笔不发，扫链在 TokenLaunched 里自己初始化曲线余额 |
 | 投递 | 至少一次；Java 按 `eventId` 去重 | 已有 |
 | 确认 | 区块落后链头 ≥ N 块才发；`removed` 恒为 `false` | 未定（他们的 `removed` 语义是「可能为 true」，见[第 10 页](/rollout) Q3） |
 | 编码 | JSON，UTF-8；`args` / `derived` 里的 uint / int 一律**十进制字符串**；信封的 `blockNumber` `blockTimestamp` `chainId` `logIndex` 可以是 JSON number（安全整数范围内，Java 两种都收）；地址、哈希、bytes32 一律 **`0x` 小写**；bool 用 JSON 布尔；string 原样；struct 展开成对象 | 已有 |
@@ -192,67 +192,72 @@ Java 写 `launchpad_v2_trade`（CURVE / SELL），持仓结一笔已实现盈亏
 | `args.tokenAmount` | 【原始】【必须】交给毕业流程的本币。存档 | 已有 |
 | `token.token` | 【解析】【必须】这条曲线对应的发射币。定位币行 | 已有 |
 
-### V4PoolGraduated（V4GraduationReceiver）· 扫链未提供
+### LaunchGraduated（LaunchFactory）· 扫链已提供，字段齐
 
-Java 写币行 `pool_created_at` / `pool_id` / `price_quote` / `liquidity_quote`。不存池的其它信息。
-
-| 字段 | 含义与说明 | 扫链现状 |
-|---|---|---|
-| `args.token` | 【原始】【必须】发射币。定位币行 | **缺** |
-| `args.curve` | 【原始】【可选】曲线地址。存档 | **缺** |
-| `args.poolId` | 【原始】【必须】Uniswap v4 poolId。前端拼 Uniswap 链接；与 Swap 对照 | **缺** |
-| `args.positionId` | 【原始】【可选】锁定的 LP NFT id。存档 | **缺** |
-| `args.sqrtPriceX96` | 【原始】【可选】池初始价原值。存档 | **缺** |
-| `args.liquidity` | 【原始】【可选】初始流动性原值。存档 | **缺** |
-| `args.quoteAmount` | 【原始】【必须】迁入池的配对资产。存档 | **缺** |
-| `args.tokenAmount` | 【原始】【必须】迁入池的本币。存档 | **缺** |
-| `args.tokenDust` | 【原始】【可选】本币尾数。存档 | **缺** |
-| `args.quoteDust` | 【原始】【可选】配对资产尾数。存档 | **缺** |
-| `derived.priceQuote` | 【解析】【必须】池初始价，一枚本币值多少配对资产，由 `sqrtPriceX96` 按 currency0 / 1 方向与两侧精度换算。建池到第一笔 Swap 之间的币价 | **缺** |
-| `derived.liquidityQuote` | 【解析】【必须】建池时池的流动性，以配对资产计。建池到第一笔 Swap 之间的 `liquidity_usd` | **缺** |
-
-### PoolRegistered（GraduatedPoolHook）· 扫链未提供
-
-Java 写币行 `pool_id`（与 V4PoolGraduated 谁先到谁写）。
+**09-21 改：原设计认的是 `V4GraduationReceiver.V4PoolGraduated`，扫链订阅的是同一笔交易里 LaunchFactory 发的这一个并补了 `derived`，我们这边改名，扫链零改动。**
+Java 写币行 `pool_created_at`（区块时间）/ `pool_id`（一次性，「还没写过才写」）与 `price_quote` / `liquidity_quote`（走成交状态水位线）。不存池的其它信息，不碰 `status`。
+同一笔交易里的日志顺序是 PoolRegistered → Initialize → ModifyLiquidity → LaunchGraduated（dev 实抓核实），所以 `derived` 是建池后的真实值。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
-| `args.poolId` | 【原始】【必须】Uniswap v4 poolId。与 V4PoolGraduated 互为兜底 | **缺** |
-| `args.token` | 【原始】【必须】发射币。定位币行 | **缺** |
-| `args.quoteAsset` | 【原始】【可选】池的计价资产。存档 | **缺** |
+| `args.token` | 【原始】【必须】发射币。定位币行（这个事件没有 `payload.token` 容器） | 已有 |
+| `args.curve` `args.receiver` `args.quoteAsset` | 【原始】【可选】曲线、毕业接收合约、配对资产。存档 | 已有 |
+| `args.quoteAmount` `args.tokenAmount` | 【原始】【可选】迁入池的两侧数量。存档 | 已有 |
+| `derived.poolId` | 【解析】【必须】官方池的 Uniswap v4 poolId（PoolRegistered 写进扫链 Token 实体的那个）。前端拼 Uniswap 链接；与 Swap 对照 | 已有 |
+| `derived.priceQuote` | 【解析】【必须】池初始价，一枚本币值多少配对资产，30 位小数。建池到第一笔 Swap 之间的币价 | 已有 |
+| `derived.liquidityQuote` | 【解析】【必须】建池后池的流动性，以配对资产**最小单位**计、向下取整。建池到第一笔 Swap 之间的 `liquidity_usd` | 已有 |
 
-### LaunchGraduationRescued（LaunchFactory）· 扫链未提供
+```json
+"payload": {
+  "address": "0xb872…ed9e",
+  "args": { "token": "0xb4ec…1a2c", "curve": "0x1fb0…5d19", "receiver": "0x6bb7…1770", "quoteAsset": "0x7e95…802f",
+            "quoteAmount": "8090000003", "tokenAmount": "239256050000000000000000000" },
+  "derived": { "poolId": "0x15ce…4db4", "priceQuote": "0.000033813147057305342957889675", "liquidityQuote": "16180000005" }
+}
+```
+
+### PoolRegistered（GraduatedPoolHook）· 扫链已提供，字段齐
+
+Java 写币行 `pool_id`（与 LaunchGraduated 谁先到谁写）。
+
+| 字段 | 含义与说明 | 扫链现状 |
+|---|---|---|
+| `args.poolId` | 【原始】【必须】Uniswap v4 poolId。与 LaunchGraduated 互为兜底 | 已有 |
+| `args.token` | 【原始】【必须】发射币。定位币行 | 已有 |
+| `args.quoteAsset` | 【原始】【可选】池的计价资产。存档 | 已有 |
+
+### LaunchGraduationRescued（LaunchFactory）· 扫链已提供（dev 上还没发生过，没有实抓样例）
 
 Java 写币行 `rescued_at`，`status = RESCUED`。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
-| `args.token` | 【原始】【必须】发射币。定位币行 | **缺** |
-| `args.recipient` | 【原始】【必须】储备释放给谁。存档 | **缺** |
-| `args.quoteAmount` | 【原始】【必须】释放的配对资产。存档 | **缺** |
-| `args.tokenAmount` | 【原始】【必须】释放的本币。存档；展示口径待产品定 | **缺** |
+| `args.token` | 【原始】【必须】发射币。定位币行 | 已有 |
+| `args.recipient` | 【原始】【必须】储备释放给谁。存档 | 已有 |
+| `args.quoteAmount` | 【原始】【必须】释放的配对资产。存档 | 已有 |
+| `args.tokenAmount` | 【原始】【必须】释放的本币。存档；展示口径待产品定 | 已有 |
 
-### Swap（PoolManager，只发我们的池）· 扫链未提供
+### Swap（PoolManager，只发我们的池）· 扫链已提供，字段齐
 
-Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。扫链 `cbcf16e` 已加 PoolManager 的 ABI，应该在路上。
+Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行 set 价格、流动性、最近成交。扫链 `f8ba507` 已发，只发官方池（`poolId` 匹配），`trader` 用收据里发射币 Transfer 的净流量认、认不出为 `null`。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
-| `args.id` | 【原始】【必须】poolId。存档；与币行 `pool_id` 对照 | **缺** |
-| `args.sender` | 【原始】【必须】调 PoolManager 的地址，通常是路由。对手方；排查 | **缺** |
-| `args.amount0` | 【原始】【必须】currency0 的 delta，swapper 视角，负 = 付出。存档、核对 derived | **缺** |
-| `args.amount1` | 【原始】【必须】currency1 的 delta。同上 | **缺** |
-| `args.sqrtPriceX96` | 【原始】【必须】成交后池价原值。存档、核对 | **缺** |
-| `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 | **缺** |
-| `args.tick` | 【原始】【可选】存档 | **缺** |
-| `args.fee` | 【原始】【可选】池费率原值。存档 | **缺** |
-| `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 只认它，不按 poolId 反查 | **缺** |
-| `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 | **缺** |
-| `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity | **缺** |
-| `derived.tokenAmount` | 【解析】【必须】本币数量，绝对值，最小单位。成交数量 | **缺** |
-| `derived.quoteAmount` | 【解析】【必须】配对资产数量，绝对值，最小单位。成交额、USD | **缺** |
-| `derived.priceQuote` | 【解析】【必须】成交后池价，一枚本币值多少配对资产。**毕业后的币价**、K 线、市值 | **缺** |
-| `derived.liquidityQuote` | 【解析】【必须】成交后池的流动性，以配对资产计：两侧按池价折成配对资产之和。`liquidity_usd = liquidityQuote × 配对资产价` | **缺** |
+| `args.id` | 【原始】【必须】poolId。存档；与币行 `pool_id` 对照 | 已有 |
+| `args.sender` | 【原始】【必须】调 PoolManager 的地址，通常是路由。对手方；排查 | 已有 |
+| `args.amount0` | 【原始】【必须】currency0 的 delta，swapper 视角，负 = 付出。存档、核对 derived | 已有 |
+| `args.amount1` | 【原始】【必须】currency1 的 delta。同上 | 已有 |
+| `args.sqrtPriceX96` | 【原始】【必须】成交后池价原值。存档、核对 | 已有 |
+| `args.liquidity` | 【原始】【可选】成交后池流动性原值。存档 | 已有 |
+| `args.tick` | 【原始】【可选】存档 | 已有 |
+| `args.fee` | 【原始】【可选】池费率原值。存档 | 已有 |
+| `token.token` | 【解析】【必须】这个池对应的发射币，与曲线事件同样放在 `payload.token`。Java 只认它，不按 poolId 反查 | 已有 |
+| `derived.side` | 【解析】【必须】`BUY` / `SELL`。本币是 currency0 还是 currency1 要按地址大小判，Java 不做 | 已有 |
+| `derived.trader` | 【解析】【必须，可为 null】真实交易者，按整笔收据里本币 Transfer 净流量：买取净流入最大、卖取净流出最大。Activity、持仓；null 的成交照记但不进 Activity | 已有 |
+| `derived.tokenAmount` | 【解析】【必须】本币数量，绝对值，最小单位。成交数量 | 已有 |
+| `derived.quoteAmount` | 【解析】【必须】配对资产数量，绝对值，最小单位。成交额、USD | 已有 |
+| `derived.priceQuote` | 【解析】【必须】成交后池价，一枚本币值多少配对资产。**毕业后的币价**、K 线、市值 | 已有 |
+| `derived.liquidityQuote` | 【解析】【必须】成交后池的流动性，以配对资产计：两侧按池价折成配对资产之和。`liquidity_usd = liquidityQuote × 配对资产价` | 已有 |
 
 ```json
 "payload": {
@@ -267,34 +272,34 @@ Java 写 `launchpad_v2_trade`（POOL）、持仓、K 线桶、协议日；币行
 }
 ```
 
-### Transfer（LaunchToken，只发发射币）· 扫链未提供
+### Transfer（LaunchToken，只发发射币，不分池）· 扫链已提供
 
-Java 把 `launchpad_v2_balance` 两行 set 成消息里的绝对值；币行 set `total_supply` / `holder_count`。**不累加**，所以重放、重复投递无副作用；同币消息有序是前提。扫链的 `config.yaml` 已订阅了 LaunchToken 的 Transfer（还有 Approval，不需要），但没有 handler、没有消息。
+**09-21 改：余额由 Java 累加，扫链不再需要给变动后的绝对值。** 每条 Transfer 先落转账事实行 `launchpad_v2_transfer`（唯一键 `(tx_hash, log_index)`），
+**只有首插成功**才给 `launchpad_v2_balance` 转出方 / 转入方两行原子加减，并推进币行的 `total_supply`（销毁）与 `holder_count`（只数用户地址，用户余额跨过 0 才变）——
+与成交同一套「事实行首插才推进派生表」的纪律，所以重复投递与回放不多算；加减可交换，所以乱序与补发不影响最终值。
+**代价是没有自愈**：漏发一条，那两个地址的余额一直错到补发为止，所以每个币的 Transfer 必须从发币那个区块起一条不漏（补发安全，事实表去重）。
+野池成交、钱包互转天然覆盖：它们只表现为 Transfer。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|
-| `args.from` | 【原始】【必须】转出方，零地址 = 铸造。审计 | **缺** |
-| `args.to` | 【原始】【必须】转入方，零地址 = 销毁。审计 | **缺** |
-| `args.value` | 【原始】【必须】数量，最小单位。审计 | **缺** |
-| `derived.fromBalance` | 【解析】【必须，from 为零地址时 null】转出方**这笔之后**的余额。直接 set 余额表；Java 不做加减 | **缺** |
-| `derived.toBalance` | 【解析】【必须，to 为零地址时 null】转入方**这笔之后**的余额。同上 | **缺** |
-| `derived.totalSupply` | 【解析】【必须】这笔之后的总供应。销毁后市值分母跟着减 | **缺** |
-| `derived.positiveBalanceCount` | 【解析】【必须】这笔之后余额 > 0 的地址数，含合约。持有人数，读时按 kind 剔协议合约 | **缺** |
-| `derived.fromKind` | 【解析】【必须】转出方是什么：`USER` / `CURVE` / `POOL_MANAGER` / `FACTORY` / `RECEIVER` / `LOCKER` / `ROUTER` / `VAULT` / `ZERO`。协议合约的地址表只在 Envio 的 config 里；Java 存进余额行，持有者榜标「Bonding Curve」、剔除协议合约、资产页只列 USER 都靠它 | **缺** |
-| `derived.toKind` | 【解析】【必须】转入方是什么，取值同上 | **缺** |
+| `args.from` | 【原始】【必须】转出方，零地址 = 铸造（总供应加）。余额减 | 已有 |
+| `args.to` | 【原始】【必须】转入方，零地址 = 销毁（总供应减）。余额加 | 已有 |
+| `args.value` | 【原始】【必须】数量，最小单位。Java 按 18 位换整枚后加减 | 已有 |
+| `token.token` | 【解析】【必须】= `payload.address`。定位币行 | 已有 |
+| `derived.fromKind` | 【解析】【必须】转出方是什么：`USER` / `CURVE` / `POOL_MANAGER` / `FACTORY` / `RECEIVER` / `LOCKER` / `ROUTER` / `VAULT` / `ZERO`。协议合约的地址表只在 Envio 的 config 里（Hook 归在 `RECEIVER`）；Java 在**建余额行时**存进去，持有者榜标「Bonding Curve」、剔除协议合约、资产页只列 USER、持有人数只数 USER 都靠它。**缺了这条消息 FAILED**，不悄悄当成 USER | 已有 |
+| `derived.toKind` | 【解析】【必须】转入方是什么，取值同上 | 已有 |
+| ~~`derived.fromBalance` `toBalance` `totalSupply` `positiveBalanceCount`~~ | 09-21 起不需要。扫链现在还带着，**Java 不读**（读了就是两个真相来源）；它们是现成的对账基准 —— 集成测试拿 dev 实抓 181 条 Transfer 验过，Java 累加的结果与它们逐个相等 | 在发，可删 |
 
 ```json
 "payload": {
   "address": "0x3d7e…4cdd",
-  "signature": "Transfer(address,address,uint256)",
   "args": { "from": "0x73d4…31eb", "to": "0x2bf5…7675", "value": "714285714285714285714285715" },
-  "derived": { "fromBalance": "285714285714285714285714285", "toBalance": "714285714285714285714285715",
-               "fromKind": "CURVE", "toKind": "USER",
-               "totalSupply": "1000000000000000000000000000", "positiveBalanceCount": "2" }
+  "token": { "token": "0x3d7e…4cdd" },
+  "derived": { "fromKind": "CURVE", "toKind": "USER" }
 }
 ```
 
-一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头。铸币那条不发（见「topic 与投递」）。
+一笔曲线买入至少带出一条 Transfer（curve → 用户），经路由时两条；这是消息量的大头。铸币那条不发（见「topic 与投递」），曲线的初始余额由发币 handler 按常量写。
 
 ### Heartbeat（不是合约事件，Envio 每分钟发一条）· 扫链未提供
 
@@ -314,13 +319,14 @@ Java 把 `launchpad_v2_balance` 两行 set 成消息里的绝对值；币行 set
 |---|---|---|
 | `QuoteAssetConfigured` | Envio 自己订阅、自己存，用来给 TokenLaunched 补精度 / 阈值；Java 不需要这张表 | 没发，正确 |
 | `SnipeTaxCharged` `HookFeeCollected` | 费用拆分本期没有读者；`fee` 总额在成交事件里已有。将来做费用区走 FeeEscrow 的台账事件，不逐笔拆 | 没发，正确 |
-| `CurveBuyRefunded` | 退款不含在 `grossQuoteIn` 里，不影响任何数 | **在发**，Java 无 handler 会 SKIPPED，建议停发 |
+| `CurveBuyRefunded` | 退款不含在 `grossQuoteIn` 里，不影响任何数 | **在发**，Java 无 handler 会 SKIPPED，无害 |
 | `AutoGraduationFailed` | 排查用 | **在发**，同上 |
 | `TradeRouter.Launched` | 与同 tx 的首买 CurveBuy 重复 | 没发，正确 |
-| `LaunchSwept` `LaunchGraduated` | 与 CurveCompleted / V4PoolGraduated 同 tx 信息重叠 | 没发，正确 |
-| `ModifyLiquidity` | 第三方加减流动性极少（我们的仓位永久锁定）；流动性随下一笔 Swap 自然更新 | 没发，正确 |
-| `Approval` | 无任何用途，量还大 | **config 里订阅了**，建议去掉 |
-| `CreatorFeeRecipientUpdated` `BuybackEnabledUpdated` `TokenDustLocked` | 当前接口不出这些字段 | 没发，正确 |
+| `LaunchSwept` `V4PoolGraduated` | 与 CurveCompleted / LaunchGraduated 同 tx 信息重叠（09-21：建池事件改认 LaunchGraduated） | 没发，正确 |
+| `Initialize` `ModifyLiquidity` | 建池那一刻的价与流动性 LaunchGraduated 已经带了；第三方加减流动性极少（我们的仓位永久锁定），流动性随下一笔 Swap 自然更新 | **在发**（只发官方池），Java 无 handler，SKIPPED，无害 |
+| `Approval` | 无任何用途，量还大 | 09-21 已从 config 去掉 |
+| `BuybackEnabledUpdated` | 回购开关只存发币时的值，不追更新 | **在发**，Java 无 handler，SKIPPED，无害 |
+| `CreatorFeeRecipientUpdated` `TokenDustLocked` | 当前接口不出这些字段 | 没发，正确 |
 | 费用 / 回购 / 治理类 | 本期不做费用区；留 `raw_events`，要用时加 handler 重扫 | 没发，正确 |
 
 ## 兼容规则

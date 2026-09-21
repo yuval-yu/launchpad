@@ -1,14 +1,14 @@
 ---
-title: 7 · 从零建表：十一张
+title: 7 · 从零建表：十二张
 ---
 
-# 从零建表：十一张
+# 从零建表：十二张
 
 线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V2__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
 约定：**数量与金额一律存整枚数 `DECIMAL(36,18)`**（用户 09-20 定，取代原来的「最小单位 `DECIMAL(65,0)`」）——1 ETH 存 `1`、200 USDG 存 `200`、10 亿总供应存 `1000000000`。消息里的 uint256 由 Java 在 handler 取字段时按精度换一次（发射币固定 18 位，配对资产取币行的 `quote_asset_decimals`；只移小数点、不舍入），之后全程整枚，所以价、美元金额、盈亏与按最小单位算逐位相同；**审计表里的消息原文仍是最小单位，消息契约不变**。对外接口里承诺是最小单位的那几个字段读时还原（见[第 8 页](/frontend)）。运营名单里的配对资产精度不得超过 18（不校验，超出的小数位会被列截掉）；**每枚币的价格（无论配对资产计还是美元计）一律 `DECIMAL(50,30)`**——10 亿供应的币价量级是 1e-15 ETH，18 位小数只剩三四位有效数字，8 位小数直接成 0（09-19 审）；整笔金额类（成交额、市值、流动性、成交量的 USD）`DECIMAL(20,8)`；配对资产自身的美元价 `DECIMAL(20,8)`；地址小写 `CHAR(42)`、哈希 / bytes32 小写 `CHAR(66)`、`event_id`，**这些列一律 `CHARACTER SET ascii COLLATE ascii_bin`**（内容永远是 ASCII，utf8mb4 下索引按 4 倍宽度算，改后索引缩到四分之一、比较不走大小写折叠）；时间毫秒 UTC `BIGINT`；每张表 `id BIGINT UNSIGNED AUTO_INCREMENT` 主键、`InnoDB` + `utf8mb4_unicode_ci`、每列带 `COMMENT`。命名跟合约走：合约叫 `quoteAsset`，表里就叫 `quote_asset_*`（对外 DTO 的 `pairAsset` 等字段名不变，映射在 Java）。只接一条链，`chain_id` 列保留但不做多链逻辑：消息里 chainId 与配置不符的在解析层就进死信，进不了任何表；**`chain_id` 不进任何索引和唯一键**（用户 09-18 定，单值列放索引首位没有选择性，只撑长索引）；唯一的例外是总共只有一行的 `launchpad_v2_indexer_state`，它的 `UK (chain_id)` 就是「一条链一行」这条约束本身。
 
-四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等；余额是消息给的绝对值，也归这类）、**派生**（只由成交事实行首次插入成功推进）、**口径**（handler 与定时线写、读接口读）。
+四类表：**审计**（消息原文与状态，重放源）、**事实**（一条日志一行，唯一键幂等：成交、转账）、**派生**（只由事实行首次插入成功推进；**余额 09-21 起归这类**——扫链不再给变动后的绝对值，由 Java 从转账事实行累加）、**口径**（handler 与定时线写、读接口读）。
 
 ## 审计
 
@@ -81,11 +81,41 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
                                                # IDX (trader_address, token_address, block_number, log_index)   迟到成交触发的持仓重算：取这一对的全部成交、按链上顺序，不用文件排序
                                                # 两条时间索引不显式写 id：InnoDB 二级索引的叶子自带主键列，(token_address, block_time) 物理上就是 (…, block_time, id)，翻页游标由它覆盖
                                                # 不分区
+
+launchpad_v2_transfer                             # 09-21 新增（第十二张）。一条发射币 Transfer 日志一行；只插入不更新。
+                                                  #   余额改由 Java 累加，而累加不幂等（重复投递、四种回放、投影事务提交后状态回写前崩溃的重投都会让同一条再过一遍 handler），
+                                                  #   所以每条 Transfer 先落这一行，只有首插成功才推进余额 / 总供应 / 持有人数。野池成交、钱包互转天然覆盖：它们只表现为 Transfer
+  chain_id               BIGINT
+  token_address          CHAR(42)              # 哪个发射币
+  from_address           CHAR(42)              # 转出地址；全零 = 铸币（发币那一笔扫链不发，正常遇不到）
+  to_address             CHAR(42)              # 转入地址；全零 = 销毁
+  amount                 DECIMAL(36,18)        # 转了多少（整枚）。留着 from / to / amount 而不是只留去重键：一条 SQL 就能验「某地址的转账净额 = 余额表那一行」
+  block_number / log_index BIGINT / INT
+  tx_hash                CHAR(66)
+  block_time             BIGINT                # 区块时间，毫秒
+  created_at             BIGINT
+                                               # PK  (id)
+                                               # UK  (tx_hash, log_index)                         一条链上日志一行
+                                               # 不另建二级索引：只用来挡重复与对账，排障按币 / 按交易查走审计表的索引。消息量的大头，会是最大的一张表
 ```
 
 ## 派生
 
 ```text
+launchpad_v2_balance                              # 一个（币, 地址）一行；余额 = 这个地址全部转账事实行的净额。09-21 起是派生表（原先是「消息给的绝对值 set + 水位线」）
+  chain_id               BIGINT
+  token_address          CHAR(42)
+  holder_address         CHAR(42)
+  holder_kind            VARCHAR(16)           # USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT，取消息里的 fromKind / toKind，只在建行时写（同一地址的类别不会变）
+  balance                DECIMAL(36,18)        # 只在转账事实行首插成功时原子加减（INSERT … ON DUPLICATE KEY UPDATE balance = balance ± ?）。没有水位线：累加型的列不能丢弃迟到的消息。
+                                               #   加减可交换，所以乱序、补发不影响最终值；中途可能短暂为负（卖出那条先到），不校验，读侧一律只取 balance > 0
+  updated_at             BIGINT
+                                               # UK  (token_address, holder_address)
+                                               # IDX (token_address, holder_kind, balance DESC)   持有者榜
+                                               # IDX (holder_address)                             资产页平台币余额、持仓
+                                               # 曲线那一行由发币 handler insertIfAbsent（余额 = 总供应，铸币的 Transfer 扫链不发）；回放发币消息不会把累加出来的余额抹回去
+                                               # 没有自愈：扫链漏发一条 Transfer，那两个地址一直错到补发为止（补发安全，事实表去重）。balanceOf 兜底校正 09-21 定：下一轮再讨论
+
 launchpad_v2_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
   chain_id               BIGINT
   token_address          CHAR(42)
@@ -162,7 +192,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   buyback_enabled        TINYINT(1)
   initial_virtual_quote_reserve DECIMAL(36,18)
   graduation_threshold   DECIMAL(36,18)
-  total_supply           DECIMAL(36,18)        # 币的总供应（整枚）；发币时取 Java 常量 LaunchConstants.TOTAL_SUPPLY（10 亿），有人销毁就按 Transfer 消息减；市值 = 价 × 它
+  total_supply           DECIMAL(36,18)        # 币的总供应（整枚）；发币时取 Java 常量 LaunchConstants.TOTAL_SUPPLY（10 亿），销毁（转入零地址）的转账事实行首插成功时原子扣减；市值 = 价 × 它
   token_decimals         TINYINT               # 发射币的精度，合约固定 18；取 Java 常量 LaunchConstants.TOKEN_DECIMALS
   name                   VARCHAR(128)
   symbol                 VARCHAR(32)
@@ -174,7 +204,7 @@ launchpad_v2_token                                # 一个发射币一行；列�
   launch_log_index       INT
   launched_at            BIGINT                # 发币区块时间；NEWEST / OLDEST 排序键
   curve_closed_at        BIGINT                # 曲线关闭时间（CurveCompleted）
-  pool_created_at        BIGINT                # V4PoolGraduated
+  pool_created_at        BIGINT                # LaunchGraduated 的区块时间（09-21 改：原 V4PoolGraduated）
   rescued_at             BIGINT                # LaunchGraduationRescued
   pool_id                CHAR(66)              # Uniswap v4 poolId，只作标识（前端拼链接）；不建索引，Swap 消息自带 token，不按它反查
   swept_quote / swept_token DECIMAL(36,18)     # 曲线关闭时交给毕业流程的配对资产 / 本币数量
@@ -182,12 +212,11 @@ launchpad_v2_token                                # 一个发射币一行；列�
   liquidity_quote        DECIMAL(36,18)        # 这个币现在的流动性有多少，以配对资产计（整枚）：曲线阶段 = quote_reserve × 2（Java 算），毕业后由消息给；乘配对资产美元价就是 liquidity_usd
   price_quote            DECIMAL(50,30)        # 币的最新价：一枚发射币值多少配对资产，来自最近一笔成交
   trade_state_block / trade_state_log BIGINT / INT   # 成交类列（price_quote / quote_reserve / liquidity_quote）的水位线：只接受更新的事件（乱序保护）
-  supply_state_block / supply_state_log BIGINT / INT # Transfer 类列（total_supply / holder_count）的水位线，与上面分开：两组列由不同事件写，共用一个会让迟到的 Transfer 被新成交挡掉
   last_trade_at          BIGINT                # LAST_TRADE 排序键；只往后推
   trade_count            INT
   cum_volume_quote_curve / cum_volume_quote_pool DECIMAL(36,18)  # 累计成交量，配对资产计
   cum_volume_usd         DECIMAL(20,8)         # 累计成交额（美元）= Σ 每笔 amount_usd，成交行首插成功时累加；**VOLUME 排序键**（用户 09-19 定：按总量排，不按 24h）
-  holder_count           INT                   # 余额大于 0 的地址有多少个，含曲线、池子这些合约；展示时减掉非用户地址
+  holder_count           INT                   # 持有人数：余额大于 0 的**用户**地址（holder_kind = USER）有多少个，不含曲线、池子这些合约（09-21 改：这个数现在是 Java 自己算的，直接算成要展示的数）。用户余额跨过 0 时原子加减一
 
   # ── 口径列：线二写（每分钟） ──
   status                 VARCHAR(16)           # CURVE / GRADUATED / RESCUED，由三个时间戳推

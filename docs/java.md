@@ -64,11 +64,11 @@ if (inserted) {                                               // 累加型只走
 | TokenLaunched | `launchpad_v2_token` insertSelective | 反查发行者用户（查不到留空）、按 `storyFun` 绑叙事、`og_key`；`total_supply` / `token_decimals` 取 `LaunchConstants`；写曲线的余额行（balance = `TOTAL_SUPPLY`，kind = CURVE），`holder_count = 1`，并把 `supply_state_*` 水位线设成这条发币事件的位置（铸币的 Transfer 扫链不发，发币就是供应类列的起点）。叙事绑定只认 `storyFun`（09-19 定）：trim 后严格匹配 `drama_{id}` / `video_{id}`（前缀小写、id 为不带前导零的正整数），为空 = 没绑（正常情况）；格式不对、或内容按 id 查不到（`video_` 指向的不是短视频也算查不到）→ WARN、不建绑定行、币照收。**只看内容的行在不在，不看状态**（软删除、未上线都照样绑，状态过滤归读侧）。`website` 不参与绑定，不再有站点 host 的配置 | — |
 | CurveBuy / CurveSell | `launchpad_v2_trade`（trader = 消息给的 `derived.trader`，没给取 `recipient` / `seller`） | 币行 `quote_reserve` `price_quote` `last_trade_at`，`liquidity_quote = quote_reserve × 2`；累加型里含 `cum_volume_usd`（VOLUME 排序键）；`price_usd` 由 `priceAt(配对资产, 区块时间)` 固化进 trade | position、kline_minute、kline_hour、protocol_day、币行 `trade_count` / `cum_volume_*` |
 | CurveCompleted | — | 币行 `curve_closed_at` `swept_quote` `swept_token` `status` | — |
-| V4PoolGraduated | — | 币行 `pool_created_at` `pool_id` `price_quote` `liquidity_quote` | — |
+| LaunchGraduated（09-21 改：原 V4PoolGraduated） | — | 币行 `pool_created_at` `pool_id`（一次性，「还没写过才写」，与 PoolRegistered 互为兜底）；`price_quote` `liquidity_quote`（成交状态水位线）。不碰 `status` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
 | Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
-| Transfer | — | `launchpad_v2_balance` 两行 set 成消息里的绝对值与 kind；币行 `total_supply` `holder_count` set | — |
+| Transfer | `launchpad_v2_transfer`（09-21 新增的转账事实表，唯一键 `(tx_hash, log_index)`） | **仅当事实行首插成功**：`launchpad_v2_balance` 转出方 / 转入方两行原子加减（建行时写 kind）；用户地址余额跨过 0 → 币行 `holder_count ± 1`（只数用户）；零地址一侧 → 币行 `total_supply` 加 / 减。余额只有这一个来源，成交类 handler 不碰余额 | — |
 | Heartbeat | 不落审计 | `launchpad_v2_indexer_state` 一行 upsert（head_block / processed_block / processed_block_time / heartbeat_at）；lag 告警、余额页 `syncedAt`、Envio 是否活着都读它 | — |
 
 **USD 固化。** 成交 handler 调 `CoinPriceService.priceAt(pairAsset, blockTime)`：价格历史表里 `priced_at ≤ blockTime` 的最近一行，没有就取最早的一行，**不因为价格旧就放弃**（有价总比没价好，用户 09-18 定）。只有该资产从未有过价（没配价源）才为 null。写下就不再改。
@@ -81,7 +81,7 @@ if (inserted) {                                               // 累加型只走
 
 Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在更晚的事件之后才来。去重靠审计表 `event_id` 唯一键，重复的拒掉、漏的补上；但派生表要能吃下乱序，四条规则：
 
-1. **set 型状态带水位线。** 币行分两组：成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，Transfer 类列（`total_supply` / `holder_count`）用 `supply_state_*`，各自只在事件的 `(block_number, log_index)` **大于**本组水位线时才写并推进；余额表的 `balance` 一个水位线。分两组是因为两组由不同事件写，共用一个会让一条迟到的 Transfer 被更新的成交挡掉，`holder_count` 停在旧值。更早的事件跳过。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推。**`status` 与毕业时间不走水位线**：它们单向，用「还在曲线阶段才写」的条件——毕业后的 Swap 会把成交水位线推到比 CurveCompleted 更新，共用条件会让迟到的 CurveCompleted 永远写不进去、币停在曲线分区；Rescued 同理。CurveCompleted 带的两笔金额（`swept_quote` / `swept_token`）同样**不走水位线**，用「还没写过才写」：这条事件的链上位置比该币所有曲线成交都靠后，它要是推进成交水位线，漏发后补到的最后几笔成交就再也写不进币行的价 / 净募集 / 流动性（09-20 修，之前归在成交组里，乱序补发时币行会停在倒数第几笔的价上）。
+1. **set 型状态带水位线。** 币行的成交类列（`price_quote` / `liquidity_quote` / `quote_reserve`）用 `trade_state_*`，只在事件的 `(block_number, log_index)` **大于**水位线时才写并推进，更早的事件跳过。**09-21 改：余额、`total_supply`、`holder_count` 不再是 set 型**——扫链不再给变动后的绝对值，它们由 Java 从转账事实行累加（首插才原子加减，见上表 Transfer 一行），累加型的列不能丢弃迟到的消息，所以余额行的水位线与币行的 `supply_state_*` 一并删除；加减可交换，乱序与补发不影响最终值，中途余额可能短暂为负，不校验，读侧只取大于 0。消息给的是绝对值，所以跳过就是对的。`last_trade_at` 本来就只往后推。**净募集 `quote_reserve` 在曲线关闭时定格（09-21 补）**：它只由曲线成交写，而这组水位线是曲线成交、建池、池内成交共用的，漏发后补到的最后几笔曲线成交会被已经到达的建池 / Swap 挡在水位线外——价被挡是对的，净募集却会停在倒数第几笔上。所以 CurveCompleted 用 `curve.realQuoteReserve` 无条件写一次终值，曲线成交只在 `status = 'CURVE'` 时才写这一列；曲线阶段内的先后仍由水位线管（真实 topic 的乱序对账测试抓到的）。**`status` 与毕业时间不走水位线**：它们单向，用「还在曲线阶段才写」的条件——毕业后的 Swap 会把成交水位线推到比 CurveCompleted 更新，共用条件会让迟到的 CurveCompleted 永远写不进去、币停在曲线分区；Rescued 同理。CurveCompleted 带的两笔金额（`swept_quote` / `swept_token`）同样**不走水位线**，用「还没写过才写」：这条事件的链上位置比该币所有曲线成交都靠后，它要是推进成交水位线，漏发后补到的最后几笔成交就再也写不进币行的价 / 净募集 / 流动性（09-20 修，之前归在成交组里，乱序补发时币行会停在倒数第几笔的价上）。
 2. **K 线桶记开收锚点。** 桶上存 `open_block / open_log` 与 `close_block / close_log`：迟到的一笔若早于 open 锚点就替换 `open`，晚于 close 锚点就替换 `close`，`high` / `low` 取极值，量与笔数只在成交行首插成功时加。这样桶与到达顺序无关。
 3. **持仓是路径依赖的，迟到就重算。** 移动平均成本按顺序算，一笔迟到的成交会让它之后该地址在该币上所有成交的 `cost_*` / `pnl_*` 都错。成交 handler 插入成功后比较：这笔的 `(block, logIndex)` 小于 `launchpad_v2_position.applied_block / applied_log` → 不做增量，改为**重算这一对 (trader, token)**：把该对全部成交按链上顺序重放，重写 position 行与每笔卖出的 `pnl_*`。这是 `launchpad_v2_trade` 唯一允许 UPDATE 的路径，且只动 `cost_*_released` / `pnl_*` 五列，链上事实列不动。一对的成交通常几十笔，重算是毫秒级。
 4. **「币还没到」不设重试上限。** 所有依赖币行的事件（成交、Transfer、CurveCompleted、毕业三事件）先于 TokenLaunched 到达时，按老做法会进 FAILED，`ChainEventRetryJob` 现在只重投 2 小时内、5 次以内的行；补发可能晚于 2 小时。把「token 不存在」这一类错误标成 `WAITING_TOKEN`，不计次数、不看窗口，TokenLaunched 投影成功**并提交之后**立即按币、按链上顺序重投它们。handler 的约定：先查币行，查不到立刻抛 `TokenNotReadyException`（事务回滚），不要写到一半才抛。等待行如果永远等不到币，就一直停在 `WAITING_TOKEN`，从各状态行数的指标上看得见。
@@ -89,7 +89,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 不需要处理的：`launchpad_v2_trade` insert-only；`launchpad_v2_protocol_day` 纯累加；线三每分钟从成交表重算 24h 与涨跌，天然与顺序无关。
 
 ::: tip 一句话验收标准
-把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十一张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
+把测试网某个币的消息随机打乱、抽掉三分之一再补发，跑完后十二张表与按顺序消费一次的结果逐字节一致。P2 的对账脚本就按这个写。
 :::
 
 ## 定时线
@@ -112,7 +112,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 | `/coin/detail` | 币行 + CMC 同步刷 | 币行，不再刷；`priceInPair = price_quote` |
 | `/coin/kline` | CMC points / transactions | M5 读 `launchpad_v2_trade` 的成交行、5 秒一格现算；H1 / H6 / D1 读 `launchpad_v2_kline_minute`；ALL 跨度 ≤ 1 天读分钟桶，更长读 `launchpad_v2_kline_hour` 合并成 2h / 12h / 1d / 1w / 1M（一年也只有 8,760 行）。「≤ 60 笔逐笔画、超过才聚合」对五档都成立；LTTB 与档位映射保留，完整映射见[第 8 页](/frontend) |
 | `/coin/trades` | CMC lastId 游标 | `launchpad_v2_trade` 按币倒序，游标 `(block_time, id)`；`exchange` 给「曲线」或「Uniswap v4」 |
-| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_v2_balance` 按币倒序前 100；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count` 减非 USER 行数 |
+| `/coin/holders` | CMC 前 100 + RPC 曲线行 | `launchpad_v2_balance` 按币倒序前 100，只取 `balance > 0`；`holder_kind = CURVE` 的行标 `bondingCurve`，其余非 USER 的剔除；`publicName` / `tags` 恒 null；总数 = `holder_count`（09-21 起它只数用户地址，不用再减） |
 | `/assets/activity` | 旧 `launchpad_activity` | `launchpad_v2_trade` 按 trader；trader 为 null 的不出 |
 | `/assets/positions` `/assets/history`（新） | — | `launchpad_v2_position` / `launchpad_v2_trade` 卖出行 |
 | `/assets/balances/tokens` | Blockscout | `launchpad_v2_balance` 按 holder，只留发射币 |
