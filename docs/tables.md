@@ -109,12 +109,14 @@ launchpad_v2_balance                              # 一个（币, 地址）一�
   holder_kind            VARCHAR(16)           # USER / CURVE / POOL_MANAGER / FACTORY / RECEIVER / LOCKER / ROUTER / VAULT，取消息里的 fromKind / toKind，只在建行时写（同一地址的类别不会变）
   balance                DECIMAL(36,18)        # 只在转账事实行首插成功时原子加减（INSERT … ON DUPLICATE KEY UPDATE balance = balance ± ?）。没有水位线：累加型的列不能丢弃迟到的消息。
                                                #   加减可交换，所以乱序、补发不影响最终值；中途可能短暂为负（卖出那条先到），不校验，读侧一律只取 balance > 0
+  verified               TINYINT(1)            # 这行余额与链上 balanceOf 核对过没有：每次 Transfer 加减置 0，余额校正任务核对（不一致就改成链上的值）后置 1（09-21，工单 39）
   updated_at             BIGINT
                                                # UK  (token_address, holder_address)
                                                # IDX (token_address, holder_kind, balance DESC)   持有者榜
                                                # IDX (holder_address)                             资产页平台币余额、持仓
+                                               # IDX (verified, updated_at)                       余额校正任务捞「还没核对、且已经静下来」的行
                                                # 曲线那一行由发币 handler insertIfAbsent（余额 = 总供应，铸币的 Transfer 扫链不发）；回放发币消息不会把累加出来的余额抹回去
-                                               # 没有自愈：扫链漏发一条 Transfer，那两个地址一直错到补发为止（补发安全，事实表去重）。balanceOf 兜底校正 09-21 定：下一轮再讨论
+                                               # 没有自愈：扫链漏发一条 Transfer，那两个地址一直错到补发为止（补发安全，事实表去重）。靠余额校正任务发现并改回来（09-21，默认关、只在 prod 开）：改成链上的值，不另记调整量——漏的那条补到时会重新标记，下一批再改回来
 
 launchpad_v2_position                             # 一个（地址, 币）一行，永不关闭；移动平均成本
   chain_id               BIGINT
