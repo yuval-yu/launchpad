@@ -24,7 +24,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 
 ## 数据怎么流、在哪生成
 
-<svg style="max-width:100%;height:auto;display:block;font-size:12px;color:var(--vp-c-text-1)" viewBox="0 0 1180 560" role="img" aria-label="数据流转图：Robinhood 链上事件经 Envio 扫链解码并补字段后发到 Kafka，Java 监听写审计表再投影到事实表与派生表，定时线算口径列，读接口只查 MySQL；配对资产价格由 Java 线一从外部价源取，落价格历史表，成交 handler 按区块时间取价固化 USD。">
+<svg style="max-width:100%;height:auto;display:block;font-size:12px;color:var(--vp-c-text-1)" viewBox="0 0 1180 560" role="img" aria-label="数据流转图：Robinhood 链上事件经 Envio 扫链解码并补字段后发到 Kafka，Java 监听写审计表再投影到事实表与派生表，定时线算口径列，读接口只查 MySQL；配对资产名单与价格由 Java 线一从平台配对资产接口取，落价格历史表，成交 handler 按区块时间取价固化 USD。">
 <defs>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
 <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -134,7 +134,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 </svg>
 
 ::: info 图说
-**三条数据生成路径。** ① 链上事件 → Envio 解码、补字段 → Kafka → Java 审计表 → handler 写事实表，并在事实行首次插入成功时推进派生表；成交的 USD 按区块时间从价格历史取，写下就不再变。 ② 外部价源 → Java 线一 → `launchpad_v2_coin_price`，全站唯一价源。 ③ 线二、线三读派生表与价格表，把现价类 USD、绑定、滚动 24h 写回 `launchpad_v2_token`。读接口全部查 MySQL。
+**三条数据生成路径。** ① 链上事件 → Envio 解码、补字段 → Kafka → Java 审计表 → handler 写事实表，并在事实行首次插入成功时推进派生表；成交的 USD 按区块时间从价格历史取，写下就不再变。 ② 平台配对资产接口 → Java 线一 → 名单表 `launchpad_v2_quote_asset` + 价格表 `launchpad_v2_coin_price`，全站唯一价源。 ③ 线二、线三读派生表与价格表，把现价类 USD、绑定、滚动 24h 写回 `launchpad_v2_token`。读接口全部查 MySQL。
 :::
 
 ## 分层
@@ -142,7 +142,7 @@ title: 1 · Envio 扫链、Kafka 投递、Java 落库
 - **Robinhood Chain**（source of truth · 自研发射台合约）：**我们对合约唯一的要求是「事件要发全」**，见[第 9 页](/events)。
 - **Envio**（扫链 · 我们自己部署）：工厂地址写死，curve 与发射币用 `contractRegister` 动态注册。handler 解码事件、用一份**最小内部状态**（curve / poolId → token，两个曲线储备）补上 Java 单看一条消息定不了的字段、把同 tx 的配对事件合并，然后经 effect 发 Kafka。**不建业务实体、不算 USD、不出 GraphQL**，见[第 3 页](/envio)。
 - **Kafka**（`launchpad.chain.events`）：分区键 token，同币有序、至少一次投递。消息格式见[第 4 页](/messages)。
-- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 九个 handler；十二张新表（审计 / 事实 / 派生 / 口径 / 状态）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
+- **Java**（launchpad · 消费、投影、口径、读接口）：「监听 → 审计表 → 投影」骨架 + 九个 handler；十三张新表（审计 / 事实 / 派生 / 口径 / 状态）；线一定价、线二币视图、线三滚动窗口；读接口全查 MySQL。改造点见[第 5 页](/java)。
 - **MySQL**（`mini_drama` 库 · `launchpad_v2_` 前缀）：审计表、币表、事实表、派生表、价格表、绑定表，见[第 7 页](/tables)。
 - **前端**：接口形状不变；`POST /activities` 下线。
 

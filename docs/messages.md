@@ -20,7 +20,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 |---|---|---|
 | `trader` | Swap（必须）· CurveBuy · CurveSell（可选） | 池内 Swap 的 `sender` 是路由，事件里没有用户地址，只有看整笔交易里本币 Transfer 的净流量才能定；曲线事件缺省取 `recipient` / `seller`，只有名义地址是合约（0x Settler 这类）时才需要 Envio 穿透 |
 | `curve.realQuoteReserve` `curve.virtualQuoteReserve` `curve.virtualTokenReserve` | CurveBuy · CurveSell | 事件里只有这笔的金额，成交后的状态不在事件里；储备是 Envio 按事件累加的绝对值，比 Java 自己累加健壮（漏一条消息不会永远错下去）。**边际价扫链不给，Java 用两个定价储备相除（用户 09-20 定）**——只是对消息里两个现成的数做一次除法，不碰 ABI、不查链 |
-| `curve.graduationQuoteThreshold` `curve.initialVirtualQuoteReserve` | TokenLaunched | 扫链在发币那个区块 `eth_call` 读曲线合约得到（原设想是按 `quoteConfigHash` 查注册表，取法归扫链定）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标由运营在 admin Redis 里维护，不走消息 |
+| `curve.graduationQuoteThreshold` `curve.initialVirtualQuoteReserve` | TokenLaunched | 扫链在发币那个区块 `eth_call` 读曲线合约得到（原设想是按 `quoteConfigHash` 查注册表，取法归扫链定）。这两个是**按币的快照**：治理重配某个配对资产后，新币用新参数、老币保留发币时的值，所以不能从运营名单或注册表现值取。配对资产的精度、代号、图标来自平台的配对资产接口（线一同步进名单表 `launchpad_v2_quote_asset`，[第 6 页](/pricing)），不走消息 |
 | `priceQuote` | LaunchGraduated · Swap | `sqrtPriceX96` 换算与 currency0 / 1 方向是 Uniswap 数学 |
 | `side` `tokenAmount` `quoteAmount` | Swap | `amount0` / `amount1` 哪个是本币要按地址大小判 |
 | `liquidityQuote` | LaunchGraduated · Swap | 毕业后池的流动性，以配对资产计 = 池两侧按池价折成配对资产之和；v4 不存余额，要从 L 与 √P 推，是 Uniswap 数学。曲线阶段不需要：Java 用 `quoteReserve × 2` |
@@ -88,7 +88,7 @@ title: 4 · 消息契约：我们要什么字段、为什么要
 
 ### TokenLaunched（LaunchFactory）· 扫链已提供，字段齐
 
-Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿枚；库里的数量一律存整枚，见[第 7 页](/tables)）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标由运营配置（admin Redis 的 `quoteTokens` 名单）按地址补，不走消息（用户 09-19 定）；**配对资产的精度是必需品**（用户 09-20 定）：消息里的数量都是最小单位，Java 入库前按精度换成整枚，没有精度就换不出任何一个数 —— 名单里没有这个配对资产时这条发币消息直接失败（审计行 FAILED），运营补进名单后自动重投就过；运营保证配对资产先配进名单。
+Java 插入 `launchpad_v2_token`，解析 `socials.storyFun` 绑叙事，反查发行者用户。总供应（10 亿枚；库里的数量一律存整枚，见[第 7 页](/tables)）、精度（18）、铸给曲线的初始余额（= 总供应）是合约 `LaunchDefaults` 里编译死的全局常量，**不随消息来，Java 放 `LaunchConstants`**（用户 09-18 定）；合约升级改常量时随事件签名一起改。配对资产的精度、代号、图标来自名单表 `launchpad_v2_quote_asset`（平台配对资产接口每分钟同步）按地址补，不走消息（用户 09-19 定）；**配对资产的精度是必需品**（用户 09-20 定）：消息里的数量都是最小单位，Java 入库前按精度换成整枚，没有精度就换不出任何一个数 —— 名单里没有这个配对资产时这条发币消息直接失败（审计行 FAILED），线一下一轮把它同步进名单后自动重投就过。
 
 | 字段 | 含义与说明 | 扫链现状 |
 |---|---|---|

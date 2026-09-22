@@ -1,8 +1,8 @@
 ---
-title: 7 · 从零建表：十二张
+title: 7 · 从零建表：十三张
 ---
 
-# 从零建表：十二张
+# 从零建表：十三张
 
 线上数据不要了，按新方案从零设计，不看旧结构、不留兼容列。全部在 `mini_drama` 库，**表名前缀 `launchpad_v2_`**（用户 09-19 定，与上一版的 `launchpad_*` 区分，两套表可以并存）；**只有一个 migration `V2__launchpad_v2_schema.sql`**，只建新表。旧 `launchpad_*` 表不在这份脚本里，**一律不动**，删不删以后再定。
 
@@ -183,8 +183,8 @@ launchpad_v2_token                                # 一个发射币一行；列�
   creator_address        CHAR(42)              # TokenLaunched.creator；对外仍叫 deployerAddress
   tx_from                CHAR(42)
   quote_asset_address    CHAR(42)              # 零地址 = 原生 ETH
-  quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；按地址从运营名单（admin 的 quoteTokens 配置）取
-  quote_asset_decimals   TINYINT NOT NULL      # 配对资产的精度（ETH 18、USDG 6），消息里的配对资产数量都靠它换成整枚再入库；按地址从运营名单（admin Redis）取。**一定有**：名单里没有这个配对资产 → 发币消息直接失败（审计行 FAILED），运营补进名单后自动重投（用户 09-20 定：运营保证配对资产先配进名单）
+  quote_asset_symbol     VARCHAR(16)           # 配对资产的代号，如 ETH / USDG；按地址从名单表 launchpad_v2_quote_asset 取
+  quote_asset_decimals   TINYINT NOT NULL      # 配对资产的精度（ETH 18、USDG 6），消息里的配对资产数量都靠它换成整枚再入库；按地址从名单表 launchpad_v2_quote_asset 取。**一定有**：名单里没有这个配对资产 → 发币消息直接失败（审计行 FAILED），线一下一轮把它同步进名单后自动重投
   quote_config_hash      CHAR(66)
   launch_config_id       INT UNSIGNED
   curve_fee_bps          SMALLINT UNSIGNED
@@ -255,11 +255,21 @@ launchpad_v2_token                                # 一个发射币一行；列�
 launchpad_v2_coin_price                           # 配对资产美元价历史；线一每分钟追加；priceAt 与线二都读它
   asset_address          CHAR(42)              # 原生币用全零地址
   symbol                 VARCHAR(16)
-  price_usd              DECIMAL(20,8)         # 股票代币已乘 currentMultiplier
-  source                 VARCHAR(32)           # PriceSource.name()
+  price_usd              DECIMAL(20,8)         # 平台配对资产接口给的美元现价，8 位小数舍入
+  source                 VARCHAR(32)           # STORYFUN（09-22 起）；更早的行可能是 FIXED_1 / COINBASE / ROBINHOOD
   priced_at              BIGINT                # 取整到分钟
   created_at             BIGINT
                                                # UK  (asset_address, priced_at)                   同一资产同一分钟只有一行，INSERT IGNORE 天然幂等；priceAt / 最新价也走它
+
+launchpad_v2_quote_asset                          # 09-22 新增（第十三张）。配对资产名单：线一每分钟从平台配对资产接口同步，只增改不删；发币 handler 按地址取精度 / 代号
+  asset_address          CHAR(42)              # 主键；小写，原生币用全零地址（本库唯一不用自增 id 的表）
+  symbol                 VARCHAR(16)           # 照接口原样，不改大小写
+  name                   VARCHAR(128)          # 可空
+  decimals               INT
+  logo                   VARCHAR(512)          # 可空
+  sort_order             INT                   # 在接口返回里的位置，名单与余额接口按它排；消失的资产保留最后一次的值
+  created_at             BIGINT
+  updated_at             BIGINT                # 内容真的变了才动；每分钟同步但没变时不动
 
 launchpad_v2_indexer_state                        # 消费水位：本服务消费到的最大区块，一条链一行。消费管线每批消息处理完单调推进一次（09-21 改：原设计由扫链的 Heartbeat 写，Heartbeat 已去掉）
   chain_id               BIGINT

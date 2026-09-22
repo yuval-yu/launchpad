@@ -96,7 +96,7 @@ Envio 漏发后补发，消息是**乱序**到达的：一条更早的事件在�
 
 | 线 | 输入 | 算 | 写 | 频率 |
 |---|---|---|---|---|
-| **一 · 定价** | 外部价源（[第 6 页](/pricing)） | 各配对资产现价 | `launchpad_v2_coin_price` 追加分钟行 | 每分钟 |
+| **一 · 定价** | 平台配对资产接口（[第 6 页](/pricing)） | 配对资产名单与现价 | `launchpad_v2_quote_asset` upsert；`launchpad_v2_coin_price` 追加分钟行 | 每分钟 |
 | **二 · 币视图** | 币行 + 余额表 + 价格表最新行 | `price_usd = price_quote × 配对资产现价`、`market_cap_usd = price_usd × total_supply`、`liquidity_usd = liquidity_quote × 配对资产价`（流动性由 Envio 给，Java 不存池子信息）、`creator_holding_pct`（等 Transfer，第三批）；新绑定钱包的发行者补 `creator_user_id`（另议） | 币行口径列 | 每分钟，每个配对资产一条 UPDATE |
 | **三 · 滚动窗口** | `launchpad_v2_trade` 最近 24h + `launchpad_v2_kline_minute` | `volume_usd_24h`（窗口 `(now − 24h, now]` 按区块时间，Σ amount_usd，缺美元金额按 0）、`price_change_24h`（以配对资产计：现价 vs 基准价。基准价 = 24h 前那个时点最近一根分钟桶的 close；币龄不足或那之前没成交过 → 最早一根桶的 open；一根桶都没有或现价为空 → NULL。24h 内没成交的币基准价就是现价，涨跌 = 0）。两者只作展示，**排序用的是累计成交额 `cum_volume_usd` 与市值**，由 handler 与线二维护 | 币行两列 | 每分钟；没成交的币置 0 |
 
