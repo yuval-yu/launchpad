@@ -54,7 +54,7 @@ launchpad_v2_trade                                # 一笔成交一行；只插�
   quote_asset_address    CHAR(42)              # 这个币的配对资产；协议日按它分组、按资产对账都要，不用 join 币表
   venue                  VARCHAR(8)            # 在哪成交：CURVE = 曲线阶段，POOL = 毕业后的 Uniswap 池
   side                   VARCHAR(4)            # BUY = 用户拿配对资产买币，SELL = 用户卖币换回配对资产
-  trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址：曲线成交 = 收币 / 卖币的地址（消息给了穿透结果就用穿透结果）；池内成交由消息给，偶尔认不出来为 NULL
+  trader_address         CHAR(42)              # 真正买卖的那个人的钱包地址：曲线成交 = 收币 / 卖币的地址（消息给了穿透结果就用穿透结果）；池内成交由消息给，**为 NULL = 协议自己的成交**（hook 清扫手续费时的内部 Swap，参与方全是协议合约），读接口据此派生 tradeKind，不进持仓
   counterparty_address   CHAR(42)              # 交易的另一方：买入时是发起调用的地址（经路由时是路由），卖出时是收款地址，池内是路由
   tx_from                CHAR(42)              # 这笔交易链上的发起人；用 gasless 时是中继地址，所以只作备查
   pool_id                CHAR(66)              # 池内成交才有：在哪个 Uniswap 池成交的

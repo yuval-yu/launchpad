@@ -67,7 +67,7 @@ if (inserted) {                                               // 累加型只走
 | LaunchGraduated（09-21 改：原 V4PoolGraduated） | — | 币行 `pool_created_at` `pool_id`（一次性，「还没写过才写」，与 PoolRegistered 互为兜底）；`price_quote` `liquidity_quote`（成交状态水位线）。不碰 `status` | — |
 | PoolRegistered | — | 币行 `pool_id` | — |
 | LaunchGraduationRescued | — | 币行 `rescued_at` `status` | — |
-| Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position |
+| Swap | `launchpad_v2_trade` | 币行 `price_quote` `liquidity_quote` `last_trade_at` | 同曲线成交；trader 为 null 不进 position（那是 hook 清扫手续费的内部 Swap，读接口派生成 `tradeKind`，见[第 9 页](/frontend)） |
 | Transfer | `launchpad_v2_transfer`（09-21 新增的转账事实表，唯一键 `(tx_hash, log_index)`） | **仅当事实行首插成功**：`launchpad_v2_balance` 转出方 / 转入方两行原子加减（建行时写 kind）；用户地址余额跨过 0 → 币行 `holder_count ± 1`（只数用户）；零地址一侧 → 币行 `total_supply` 加 / 减。余额只有这一个来源，成交类 handler 不碰余额 | — |
 | ~~Heartbeat~~（09-21 去掉） | — | 不再有这种消息。`launchpad_v2_indexer_state` 改由**消费水位**写：每条进了审计表的消息记一次位置（只比大小），每批处理完单调 upsert 一次（`ConsumptionWatermark`）；余额页与持仓页的 `syncedAt` 读它。没有落后告警——「扫链停了」由扫链那边自己监控 | — |
 
